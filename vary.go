@@ -1,3 +1,36 @@
+// Package vary provides environment variable binding to struct fields.
+//
+// It automatically populates struct fields from environment variables based on struct tags.
+// The package supports a wide range of Go types including primitives, slices, and custom types
+// that implement standard marshaling interfaces.
+//
+// Basic Usage:
+//
+//	type Config struct {
+//		Port     int     `env:"PORT" default:"8080"`
+//		Debug    bool    `default:"false"` // Will use the all-caps name "DEBUG"
+//		Database url.URL `env:"DATABASE_URL"`
+//	}
+//
+//	var cfg Config
+//	if err := vary.Bind(&cfg); err != nil {
+//		log.Fatal(err)
+//	}
+//
+// Tags:
+//   - env: specifies the environment variable name (defaults to uppercase field name)
+//   - default: specifies a default value if the environment variable is not set
+//
+// Supported Field Types:
+//   - String
+//   - Integers: int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64
+//   - Floating-point: float32, float64
+//   - Complex: complex64, complex128
+//   - Boolean
+//   - Slices and Arrays of any supported type (comma-separated values)
+//   - Any type implementing encoding.TextUnmarshaler
+//   - Any type implementing encoding.BinaryUnmarshaler
+//   - Nested structs (recursively bound)
 package vary
 
 import (
@@ -105,7 +138,39 @@ func Bind(ptr any) error {
 	return DefaultBinder.Bind(ptr)
 }
 
-// Bind initializes the supplied object based on associated struct tags
+// Bind initializes the supplied object based on associated struct tags.
+//
+// Supported Types:
+// Bind supports the following field types:
+//   - String
+//   - Integer types: int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64
+//   - Floating-point types: float32, float64
+//   - Complex types: complex64, complex128
+//   - Boolean
+//   - Slices and Arrays of any supported type (values are comma-separated in the environment variable)
+//   - Nested structs (recursively bound with optional prefix handling)
+//   - Types implementing encoding.TextUnmarshaler
+//   - Types implementing encoding.BinaryUnmarshaler
+//
+// Marshaler Types:
+// Bind recognizes and uses the following standard Go marshaling interfaces:
+//   - encoding.TextUnmarshaler: used for converting string values to custom types
+//   - encoding.BinaryUnmarshaler: used for binary-encoded environment values
+//
+// Tags:
+// Bind looks for the following struct tags on exported fields:
+//   - env: specifies the environment variable name (defaults to uppercase field name if omitted)
+//   - default: specifies a default value to use if the environment variable is not set
+//
+// Prefix Handling:
+// The prefix behavior is controlled by the prefixHandling parameter passed to NewWithPrefix.
+// See PrefixHandling for more details on how prefixes are applied.
+//
+// Returns:
+//   - ErrPointerRequired if ptr is not a pointer
+//   - ErrStructRequired if the pointer does not point to a struct
+//   - ErrUnsupportedType if a field type is not supported
+//   - Other errors from type conversions or unmarshaling
 func (b *Binder) Bind(ptr any) error {
 	val := reflect.ValueOf(ptr)
 	if val.Kind() != reflect.Pointer {
