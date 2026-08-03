@@ -12,6 +12,7 @@ Simple configuration library that binds values to environment variables.
 ## Quick Start
 
 Declaring your configuration objects, optionally decorating each field with struct tags to control the variable binding:
+
 ```go
 type Config struct {
     Port     int     `env:"PORT" default:"8080"`
