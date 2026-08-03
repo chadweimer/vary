@@ -38,15 +38,10 @@ jobs:
       - id: lint
         run: |
           go vet ./...
-      #    go tool revive -exclude static/... -config=revive.toml ./... > $(ROOT_BUILD_DIR)/revive.golint
-      #    go tool gosec -no-fail -fmt=sonarqube -out=$(ROOT_BUILD_DIR)/gosec.json -stdout ./...
-      # TODO
-      #- id: lint-test
-      #  run: make lint test
       - id: test
         run: go test -coverprofile=test-coverage.out -coverpkg=./... -json > test-results.json ./...
-      #- name: SonarCloud Scan
-      #  if: success() || steps.test.outcome == 'failure' || steps.lint.outcome == 'failure'
-      #  uses: SonarSource/sonarqube-scan-action@v7
-      #  env:
-      #    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: SonarCloud Scan
+        if: success() || steps.test.outcome == 'failure' || steps.lint.outcome == 'failure'
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
