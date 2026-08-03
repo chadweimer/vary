@@ -1,4 +1,5 @@
 # vary
+
 Simple configuration library that binds values to environment variables.
 
 ## Quick Start
@@ -36,4 +37,4 @@ vary.Bind(appConfig)
 
 ## Documentation
 
-TODO
+[![Go Reference](https://pkg.go.dev/badge/github.com/chadweimer/vary.svg)](https://pkg.go.dev/github.com/chadweimer/vary)
