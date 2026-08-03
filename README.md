@@ -2,28 +2,30 @@
 
 Simple configuration library that binds values to environment variables.
 
+![Continuous Integration](https://img.shields.io/github/actions/workflow/status/chadweimer/vary/build-and-test.yml?branch=main)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=chadweimer_vary&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=chadweimer_vary)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=chadweimer_vary&metric=coverage)](https://sonarcloud.io/summary/new_code?id=chadweimer_vary)
+[![Closed Pull Requests](https://img.shields.io/github/issues-pr-closed-raw/chadweimer/vary.svg)](https://github.com/chadweimer/vary/pulls)
+[![GitHub release](https://img.shields.io/github/release/chadweimer/vary.svg)](https://github.com/chadweimer/vary/releases)
+[![license](https://img.shields.io/github/license/chadweimer/vary.svg)](LICENSE)
+
 ## Quick Start
 
-First install the package into your go project:
-```bash
-go get github.com/chadweimer/vary
+Declaring your configuration objects, optionally decorating each field with struct tags to control the variable binding:
+```go
+type Config struct {
+    Port     int     `env:"PORT" default:"8080"`
+    Debug    bool    `default:"false"` // Will use the all-caps name "DEBUG"
+    Database url.URL `env:"DATABASE_URL"`
+}
 ```
 
-When declaring your configuration objects, you can decorate each field with struct tags to control the variable binding:
+Then, bind the struct to set field values based on the current state of environment variables.
+
 ```go
-package main
-
-import "github.com/chadweimer/vary"
-
-type AppConfig struct {
-    SomeVar int `env:"SOME_VAR" default:"1"`
-}
-
-func main() {
-    appConfig := new(AppConfig)
-    if err := vary.Bind(appConfig); err != nil {
-        panic(err)
-    }
+var cfg Config
+if err := vary.Bind(&cfg); err != nil {
+    log.Fatal(err)
 }
 ```
 
@@ -31,9 +33,12 @@ If you want to use an application specific environment variable prefix in order 
 
 ```go
 vary.SetPrefix("MYAPP")
-// This will look for MYAPP_SOME_VAR, falling back to SOME_VAR if the former is not set
-vary.Bind(appConfig)
+// This will look for MYAPP_PORT, MYAPP_DEBUG, and MYAPP_DATABASE_URL,
+// falling back to the base name only when the one with the prefix is not set.
+vary.Bind(cfg)
 ```
+
+Refer to the documentation for more information on prefixes and how to control the order of precedence between names.
 
 ## Documentation
 
