@@ -15,9 +15,11 @@ Declaring your configuration objects, optionally decorating each field with stru
 
 ```go
 type Config struct {
-    Port     int     `env:"PORT" default:"8080"`
-    Debug    bool    `default:"false"` // Will use the all-caps name "DEBUG"
-    Database url.URL `env:"DATABASE_URL"`
+    Port     int               `env:"PORT" default:"8080"`
+    Debug    bool              `default:"false"` // Will use the all-caps name "DEBUG"
+    Timeout  time.Duration     `env:"TIMEOUT" default:"30s"`
+    Database url.URL           `env:"DATABASE_URL" required:"true"`
+    Tags     map[string]string `env:"TAGS" default:"env=dev,tier=frontend"`
 }
 ```
 
@@ -34,12 +36,12 @@ If you want to use an application specific environment variable prefix in order 
 
 ```go
 vary.SetPrefix("MYAPP")
-// This will look for MYAPP_PORT, MYAPP_DEBUG, and MYAPP_DATABASE_URL,
+// This will look for MYAPP_PORT, MYAPP_DEBUG, MYAPP_TIMEOUT, etc.,
 // falling back to the base name only when the one with the prefix is not set.
-vary.Bind(cfg)
+vary.Bind(&cfg)
 ```
 
-Refer to the documentation for more information on prefixes and how to control the order of precedence between names.
+Refer to the documentation for more information on prefixes, strict mode, and how to control the order of precedence between names.
 
 ## Documentation
 

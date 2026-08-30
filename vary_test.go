@@ -44,11 +44,22 @@ func TestBind_Defaults(t *testing.T) {
 		TestString           string   `default:"Hello, Tests!"`
 		TestStringEmptyArray []string `default:""`
 
+		TestDuration      time.Duration   `default:"10s"`
+		TestDurationPtr   *time.Duration  `default:"500ms"`
+		TestDurationArray []time.Duration `default:"1s, 2m"`
+
 		TestTime    time.Time  `default:"2000-01-02T03:04:05Z"`
 		TestTimePtr *time.Time `default:"2000-01-02T03:04:05Z"`
 
 		TestURL      url.URL   `default:"https://example.com"`
 		TestURLArray []url.URL `default:"https://example.com,https://example.org"`
+
+		TestMapStringString map[string]string     `default:"k1=v1,k2=v2"`
+		TestMapStringInt    map[string]int        `default:"a:1, b:2"`
+		TestMapIntDuration  map[int]time.Duration `default:"1=10s, 2=20s"`
+		TestMapEmpty        map[string]string     `default:""`
+		TestMapColon        map[string]string     `default:"foo:bar, baz:qux"`
+		TestMapPtrVal       map[string]*int       `default:"one=1, two=2"`
 	}
 	tests := []struct {
 		name string
@@ -90,6 +101,10 @@ func TestBind_Defaults(t *testing.T) {
 				TestString:           "Hello, Tests!",
 				TestStringEmptyArray: []string{},
 
+				TestDuration:      10 * time.Second,
+				TestDurationPtr:   new(500 * time.Millisecond),
+				TestDurationArray: []time.Duration{1 * time.Second, 2 * time.Minute},
+
 				TestTime:    time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC),
 				TestTimePtr: new(time.Date(2000, 1, 2, 3, 4, 5, 0, time.UTC)),
 
@@ -98,6 +113,13 @@ func TestBind_Defaults(t *testing.T) {
 					{Scheme: "https", Host: "example.com"},
 					{Scheme: "https", Host: "example.org"},
 				},
+
+				TestMapStringString: map[string]string{"k1": "v1", "k2": "v2"},
+				TestMapStringInt:    map[string]int{"a": 1, "b": 2},
+				TestMapIntDuration:  map[int]time.Duration{1: 10 * time.Second, 2: 20 * time.Second},
+				TestMapEmpty:        map[string]string{},
+				TestMapColon:        map[string]string{"foo": "bar", "baz": "qux"},
+				TestMapPtrVal:       map[string]*int{"one": new(1), "two": new(2)},
 			},
 		},
 	}
@@ -116,9 +138,11 @@ func TestBind_Defaults(t *testing.T) {
 
 func TestBind_EnvVar(t *testing.T) {
 	type testStruct struct {
-		TestInt    int     `env:"TEST_INT" default:"1"`
-		TestString string  `env:"TEST_STRING" default:"Default"`
-		TestFloat  float32 `env:"TEST_FLOAT" default:"1.1"`
+		TestInt      int               `env:"TEST_INT" default:"1"`
+		TestString   string            `env:"TEST_STRING" default:"Default"`
+		TestFloat    float32           `env:"TEST_FLOAT" default:"1.1"`
+		TestDuration time.Duration     `env:"TEST_DURATION" default:"5s"`
+		TestMap      map[string]string `env:"TEST_MAP" default:"a=1"`
 	}
 	tests := []struct {
 		name   string
@@ -129,35 +153,44 @@ func TestBind_EnvVar(t *testing.T) {
 		{
 			name: "Reads envs",
 			env: map[string]string{
-				"TEST_INT":    "2",
-				"TEST_STRING": "Hello, Tests!",
-				"TEST_FLOAT":  "2.2",
+				"TEST_INT":      "2",
+				"TEST_STRING":   "Hello, Tests!",
+				"TEST_FLOAT":    "2.2",
+				"TEST_DURATION": "15s",
+				"TEST_MAP":      "k1=v1,k2=v2",
 			},
 			want: testStruct{
-				TestInt:    2,
-				TestString: "Hello, Tests!",
-				TestFloat:  2.2,
+				TestInt:      2,
+				TestString:   "Hello, Tests!",
+				TestFloat:    2.2,
+				TestDuration: 15 * time.Second,
+				TestMap:      map[string]string{"k1": "v1", "k2": "v2"},
 			},
 		},
 		{
 			name: "Handles unset env",
 			env:  map[string]string{},
 			want: testStruct{
-				TestInt:    1,
-				TestString: "Default",
-				TestFloat:  1.1,
+				TestInt:      1,
+				TestString:   "Default",
+				TestFloat:    1.1,
+				TestDuration: 5 * time.Second,
+				TestMap:      map[string]string{"a": "1"},
 			},
 		},
 		{
 			name: "Handles invalid env",
 			env: map[string]string{
-				"TEST_INT":   "3a",
-				"TEST_FLOAT": "2.c",
+				"TEST_INT":      "3a",
+				"TEST_FLOAT":    "2.c",
+				"TEST_DURATION": "invalid",
 			},
 			want: testStruct{
-				TestInt:    1,
-				TestString: "Default",
-				TestFloat:  1.1,
+				TestInt:      1,
+				TestString:   "Default",
+				TestFloat:    1.1,
+				TestDuration: 5 * time.Second,
+				TestMap:      map[string]string{"a": "1"},
 			},
 		},
 		{
@@ -169,9 +202,11 @@ func TestBind_EnvVar(t *testing.T) {
 			},
 			prefix: "APP",
 			want: testStruct{
-				TestInt:    2,
-				TestString: "Default",
-				TestFloat:  3.3,
+				TestInt:      2,
+				TestString:   "Default",
+				TestFloat:    3.3,
+				TestDuration: 5 * time.Second,
+				TestMap:      map[string]string{"a": "1"},
 			},
 		},
 	}
@@ -254,12 +289,178 @@ func TestBind_PrefixHandling(t *testing.T) {
 			for key, val := range tt.env {
 				t.Setenv(key, val)
 			}
-			binder := NewWithPrefix(tt.prefix, tt.prefixHandling)
+			binder := New(WithPrefix(tt.prefix, tt.prefixHandling))
 			got := testStruct{}
 			if err := binder.Bind(&got); err != nil {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Bind() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBind_Required(t *testing.T) {
+	type testStruct struct {
+		RequiredField   string `env:"REQ_FIELD" required:"true"`
+		RequiredNum     int    `env:"REQ_NUM" required:"1"`
+		RequiredWithDef string `env:"REQ_DEF" required:"true" default:"fallback"`
+		OptionalField   string `env:"OPT_FIELD"`
+	}
+
+	tests := []struct {
+		name       string
+		env        map[string]string
+		want       testStruct
+		wantErr    bool
+		errChecker func(error) bool
+	}{
+		{
+			name:    "Missing all required fields",
+			env:     map[string]string{},
+			wantErr: true,
+			errChecker: func(err error) bool {
+				var reqErr *ErrRequiredField
+				return errors.As(err, &reqErr)
+			},
+		},
+		{
+			name: "Missing one required field",
+			env: map[string]string{
+				"REQ_FIELD": "hello",
+			},
+			wantErr: true,
+			errChecker: func(err error) bool {
+				var reqErr *ErrRequiredField
+				return errors.As(err, &reqErr)
+			},
+		},
+		{
+			name: "All required fields provided",
+			env: map[string]string{
+				"REQ_FIELD": "hello",
+				"REQ_NUM":   "42",
+			},
+			want: testStruct{
+				RequiredField:   "hello",
+				RequiredNum:     42,
+				RequiredWithDef: "fallback",
+			},
+			wantErr: false,
+		},
+		{
+			name: "All fields provided",
+			env: map[string]string{
+				"REQ_FIELD": "hello",
+				"REQ_NUM":   "42",
+				"REQ_DEF":   "custom",
+				"OPT_FIELD": "optional",
+			},
+			want: testStruct{
+				RequiredField:   "hello",
+				RequiredNum:     42,
+				RequiredWithDef: "custom",
+				OptionalField:   "optional",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for key, val := range tt.env {
+				t.Setenv(key, val)
+			}
+			var got testStruct
+			err := Bind(&got)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				if tt.errChecker != nil && !tt.errChecker(err) {
+					t.Errorf("Bind() error = %v, failed errChecker", err)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Bind() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBind_Strict(t *testing.T) {
+	type testStruct struct {
+		Port int `env:"PORT" default:"8080"`
+	}
+
+	tests := []struct {
+		name    string
+		env     map[string]string
+		binder  *Binder
+		want    testStruct
+		wantErr bool
+	}{
+		{
+			name: "Permissive mode ignores invalid env",
+			env: map[string]string{
+				"PORT": "not-a-port",
+			},
+			binder:  New(),
+			want:    testStruct{Port: 8080},
+			wantErr: false,
+		},
+		{
+			name: "Permissive mode parses valid env",
+			env: map[string]string{
+				"PORT": "9000",
+			},
+			binder:  New(),
+			want:    testStruct{Port: 9000},
+			wantErr: false,
+		},
+		{
+			name: "Strict mode returns error on invalid env",
+			env: map[string]string{
+				"PORT": "not-a-port",
+			},
+			binder:  New(WithStrict(true)),
+			wantErr: true,
+		},
+		{
+			name: "SetStrict enables strict mode on binder",
+			env: map[string]string{
+				"PORT": "not-a-port",
+			},
+			binder: func() *Binder {
+				b := New(WithStrict(true))
+				return b
+			}(),
+			wantErr: true,
+		},
+		{
+			name: "Strict mode parses valid env",
+			env: map[string]string{
+				"PORT": "9000",
+			},
+			binder:  New(WithStrict(true)),
+			want:    testStruct{Port: 9000},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for key, val := range tt.env {
+				t.Setenv(key, val)
+			}
+			var got testStruct
+			err := tt.binder.Bind(&got)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Bind() = %v, want %v", got, tt.want)
 			}
 		})
@@ -289,8 +490,20 @@ func TestBind_BadValuesReturnError(t *testing.T) {
 	type badSlice struct {
 		TestSlice []int `default:"1,2,f"`
 	}
-	type badMap struct {
-		TestMap map[string]string `default:"a=b"`
+	type badDuration struct {
+		TestDuration time.Duration `default:"not_a_duration"`
+	}
+	type badMapFormat struct {
+		TestMap map[string]string `default:"invalid_entry_no_delim"`
+	}
+	type badMapKey struct {
+		TestMap map[int]string `default:"invalid_key=value"`
+	}
+	type badMapVal struct {
+		TestMap map[string]int `default:"key=invalid_val"`
+	}
+	type unsupportedChan struct {
+		TestChan chan int `default:"chan"`
 	}
 	//revive:disable:enable-tag
 	tests := []struct {
@@ -387,8 +600,46 @@ func TestBind_BadValuesReturnError(t *testing.T) {
 			},
 		},
 		{
-			name: "Maps not supported",
-			arg:  &badMap{},
+			name: "Duration",
+			arg:  &badDuration{},
+			errChecker: func(got error) (error, bool) {
+				return errors.New("time: invalid duration"), got != nil
+			},
+		},
+		{
+			name: "Map Format",
+			arg:  &badMapFormat{},
+			errChecker: func(got error) (error, bool) {
+				return ErrInvalidMapEntry, errors.Is(got, ErrInvalidMapEntry)
+			},
+		},
+		{
+			name: "Map Key",
+			arg:  &badMapKey{},
+			errChecker: func(got error) (error, bool) {
+				want := &strconv.NumError{
+					Func: "ParseInt",
+					Num:  "invalid_key",
+					Err:  errors.New(""),
+				}
+				return want, errors.As(got, new(want))
+			},
+		},
+		{
+			name: "Map Value",
+			arg:  &badMapVal{},
+			errChecker: func(got error) (error, bool) {
+				want := &strconv.NumError{
+					Func: "ParseInt",
+					Num:  "invalid_val",
+					Err:  errors.New(""),
+				}
+				return want, errors.As(got, new(want))
+			},
+		},
+		{
+			name: "Unsupported type (chan)",
+			arg:  &unsupportedChan{},
 			errChecker: func(got error) (error, bool) {
 				want := &ErrUnsupportedType{}
 				return want, errors.As(got, new(want))
