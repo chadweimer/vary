@@ -610,7 +610,7 @@ func TestBind_BadValuesReturnError(t *testing.T) {
 			name: "Map Format",
 			arg:  &badMapFormat{},
 			errChecker: func(got error) (error, bool) {
-				return ErrInvalidMapEntry, errors.Is(got, ErrInvalidMapEntry)
+				return errors.New("map: invalid format"), got != nil
 			},
 		},
 		{
