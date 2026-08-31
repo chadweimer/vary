@@ -289,7 +289,7 @@ func TestBind_PrefixHandling(t *testing.T) {
 			for key, val := range tt.env {
 				t.Setenv(key, val)
 			}
-			binder := New(WithPrefix(tt.prefix, tt.prefixHandling))
+			binder := New(WithPrefix(tt.prefix), WithPrefixHandling(tt.prefixHandling))
 			got := testStruct{}
 			if err := binder.Bind(&got); err != nil {
 				t.Fatal(err)

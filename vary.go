@@ -127,10 +127,16 @@ type Binder struct {
 // Option is a function that configures a Binder.
 type Option func(*Binder)
 
-// WithPrefix sets the prefix and prefix handling for the Binder.
-func WithPrefix(prefix string, prefixHandling PrefixHandling) Option {
+// WithPrefix sets the prefix for the Binder.
+func WithPrefix(prefix string) Option {
 	return func(b *Binder) {
 		b.prefix = prefix
+	}
+}
+
+// WithPrefixHandling sets the prefix handling for the Binder.
+func WithPrefixHandling(prefixHandling PrefixHandling) Option {
+	return func(b *Binder) {
 		b.prefixHandling = prefixHandling
 	}
 }
@@ -171,9 +177,9 @@ func New(opts ...Option) *Binder {
 
 // NewWithPrefix creates a new Binder with the specified prefix and prefix handling.
 //
-// Deprecated: use New with the WithPrefix option instead.
+// Deprecated: use New with the WithPrefix and WithPrefixHandling options instead.
 func NewWithPrefix(prefix string, prefixHandling PrefixHandling) *Binder {
-	return New(WithPrefix(prefix, prefixHandling))
+	return New(WithPrefix(prefix), WithPrefixHandling(prefixHandling))
 }
 
 // SetPrefix sets the prefix for the default binder.
