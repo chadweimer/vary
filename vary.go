@@ -229,7 +229,7 @@ func Bind(ptr any) error {
 //   - required: specifies that the field must receive a value from an environment variable or default
 //
 // Prefix Handling:
-// The prefix behavior is controlled by the PrefixHandling parameter passed to WithPrefix.
+// The prefix behavior is controlled by the PrefixHandling parameter passed to WithPrefixHandling.
 // See PrefixHandling for more details on how prefixes are applied.
 //
 // Returns:
