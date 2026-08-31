@@ -59,9 +59,6 @@ var (
 
 	// ErrStructRequired is returned when a non-struct type is passed to Bind.
 	ErrStructRequired = errors.New("bind requires struct types")
-
-	// ErrInvalidMapEntry is returned when a map entry string is malformed.
-	ErrInvalidMapEntry = errors.New("invalid map entry: must be key=value or key:value")
 )
 
 // ErrRequiredField is returned when a required configuration field has no value set.
@@ -462,7 +459,7 @@ func convertMap(str string, val reflect.Value) error {
 					keyStr, valStr, found = strings.Cut(pair, ":")
 				}
 				if !found {
-					return reflect.Zero(valType), fmt.Errorf("%w: %q", ErrInvalidMapEntry, pair)
+					return reflect.Zero(valType), fmt.Errorf("invalid map entry: must be key=value or key:value: %q", pair)
 				}
 
 				keyPtr := reflect.New(keyType)
