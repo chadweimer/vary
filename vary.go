@@ -276,9 +276,7 @@ func (b *Binder) bindStruct(objVal reflect.Value) error {
 				envSet, err := b.setFromEnv(field, fieldVal)
 				if err != nil {
 					errs = append(errs, err)
-				}
-
-				if isRequired(field) && !hasDefault && !envSet {
+				} else if isRequired(field) && !hasDefault && !envSet {
 					errs = append(errs, &ErrRequiredField{
 						FieldName: field.Name,
 					})
