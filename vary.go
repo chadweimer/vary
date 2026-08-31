@@ -1,15 +1,17 @@
 // Package vary provides environment variable binding to struct fields.
 //
 // It automatically populates struct fields from environment variables based on struct tags.
-// The package supports a wide range of Go types including primitives, slices, and custom types
-// that implement standard marshaling interfaces.
+// The package supports a wide range of Go types including primitives, time.Duration, maps,
+// slices, and custom types that implement standard marshaling interfaces.
 //
 // Basic Usage:
 //
 //	type Config struct {
-//		Port     int     `env:"PORT" default:"8080"`
-//		Debug    bool    `default:"false"` // Will use the all-caps name "DEBUG"
-//		Database url.URL `env:"DATABASE_URL"`
+//		Port     int           `env:"PORT" default:"8080"`
+//		Debug    bool          `default:"false"` // Will use the all-caps name "DEBUG"
+//		Timeout  time.Duration `env:"TIMEOUT" default:"30s"`
+//		Database url.URL       `env:"DATABASE_URL" required:"true"`
+//		Tags     map[string]string `env:"TAGS" default:"env=dev,tier=frontend"`
 //	}
 //
 //	var cfg Config
@@ -20,6 +22,7 @@
 // Tags:
 //   - env: specifies the environment variable name (defaults to uppercase field name)
 //   - default: specifies a default value if the environment variable is not set
+//   - required: indicates the field must be set by an environment variable or default value
 //
 // Supported Field Types:
 //   - String
@@ -27,6 +30,8 @@
 //   - Floating-point: float32, float64
 //   - Complex: complex64, complex128
 //   - Boolean
+//   - time.Duration (parsed using time.ParseDuration, e.g., "5s", "10m", "1h")
+//   - Maps of any supported key and value types (e.g., "key1=val1,key2=val2" or "key1:val1,key2:val2")
 //   - Slices and Arrays of any supported type (comma-separated values)
 //   - Any type implementing encoding.TextUnmarshaler
 //   - Any type implementing encoding.BinaryUnmarshaler
@@ -43,6 +48,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // --- Error types ---
@@ -54,6 +60,15 @@ var (
 	// ErrStructRequired is returned when a non-struct type is passed to Bind.
 	ErrStructRequired = errors.New("bind requires struct types")
 )
+
+// ErrRequiredField is returned when a required configuration field has no value set.
+type ErrRequiredField struct {
+	FieldName string
+}
+
+func (e *ErrRequiredField) Error() string {
+	return fmt.Sprintf("required configuration field %s is not set", e.FieldName)
+}
 
 // ErrUnsupportedType is returned when a field type is not supported for binding.
 type ErrUnsupportedType struct {
@@ -69,6 +84,7 @@ func (e *ErrUnsupportedType) Error() string {
 var (
 	textUnmarshalerType   = reflect.TypeFor[encoding.TextUnmarshaler]()
 	binaryUnmarshalerType = reflect.TypeFor[encoding.BinaryUnmarshaler]()
+	durationType          = reflect.TypeFor[time.Duration]()
 	marshalerTypes        = []reflect.Type{
 		textUnmarshalerType,
 		binaryUnmarshalerType,
@@ -102,33 +118,77 @@ const (
 type Binder struct {
 	prefix         string
 	prefixHandling PrefixHandling
+	strict         bool
+}
+
+// Option is a function that configures a Binder.
+type Option func(*Binder)
+
+// WithPrefix sets the prefix for the Binder.
+func WithPrefix(prefix string) Option {
+	return func(b *Binder) {
+		b.prefix = prefix
+	}
+}
+
+// WithPrefixHandling sets the prefix handling for the Binder.
+func WithPrefixHandling(prefixHandling PrefixHandling) Option {
+	return func(b *Binder) {
+		b.prefixHandling = prefixHandling
+	}
+}
+
+// WithStrict sets the strict error handling mode for the Binder.
+//
+// When strict mode is enabled (true), any parsing or type conversion errors encountered
+// while reading environment variables (e.g., invalid integer syntax, malformed durations,
+// or improper map formatting) will cause Bind to return an error.
+//
+// When strict mode is disabled (false, the default), environment variable conversion errors
+// are logged as warnings via slog.Warn, and the field retains its existing or default value.
+//
+// Note that fields tagged with `required:"true"` that receive neither an environment variable
+// nor a default value will always produce an ErrRequiredField error regardless of strict mode.
+func WithStrict(strict bool) Option {
+	return func(b *Binder) {
+		b.strict = strict
+	}
 }
 
 // DefaultBinder is the default binder used for global calls.
 var DefaultBinder = New()
 
-// New creates a new Binder with default settings (no initial prefix, primary prefix handling).
-func New() *Binder {
-	return &Binder{
+// New creates a new Binder with default settings (no initial prefix, primary prefix handling, strict mode disabled),
+// and applies any provided options.
+func New(opts ...Option) *Binder {
+	b := &Binder{
 		prefix:         "",
 		prefixHandling: PrefixHandlingPrimary,
+		strict:         false,
 	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
 }
 
 // NewWithPrefix creates a new Binder with the specified prefix and prefix handling.
+//
+// Deprecated: use New with the WithPrefix and WithPrefixHandling options instead.
 func NewWithPrefix(prefix string, prefixHandling PrefixHandling) *Binder {
-	return &Binder{
-		prefix:         prefix,
-		prefixHandling: prefixHandling,
-	}
+	return New(WithPrefix(prefix), WithPrefixHandling(prefixHandling))
 }
 
 // SetPrefix sets the prefix for the default binder.
+//
+// Deprecated: use New with the WithPrefix option and assign to DefaultBinder instead.
 func SetPrefix(prefix string) {
 	DefaultBinder.SetPrefix(prefix)
 }
 
 // SetPrefix sets the prefix for the binder.
+//
+// Deprecated: configure the binder using the WithPrefix option during creation instead.
 func (b *Binder) SetPrefix(prefix string) {
 	b.prefix = prefix
 }
@@ -147,6 +207,8 @@ func Bind(ptr any) error {
 //   - Floating-point types: float32, float64
 //   - Complex types: complex64, complex128
 //   - Boolean
+//   - time.Duration (parsed using time.ParseDuration)
+//   - Maps of any supported key and value types (comma-separated key=value or key:value pairs)
 //   - Slices and Arrays of any supported type (values are comma-separated in the environment variable)
 //   - Nested structs (recursively bound with optional prefix handling)
 //   - Types implementing encoding.TextUnmarshaler
@@ -161,15 +223,17 @@ func Bind(ptr any) error {
 // Bind looks for the following struct tags on exported fields:
 //   - env: specifies the environment variable name (defaults to uppercase field name if omitted)
 //   - default: specifies a default value to use if the environment variable is not set
+//   - required: specifies that the field must receive a value from an environment variable or default
 //
 // Prefix Handling:
-// The prefix behavior is controlled by the prefixHandling parameter passed to NewWithPrefix.
+// The prefix behavior is controlled by the PrefixHandling parameter passed to WithPrefixHandling.
 // See PrefixHandling for more details on how prefixes are applied.
 //
 // Returns:
 //   - ErrPointerRequired if ptr is not a pointer
 //   - ErrStructRequired if the pointer does not point to a struct
 //   - ErrUnsupportedType if a field type is not supported
+//   - ErrRequiredField if a required field is not set
 //   - Other errors from type conversions or unmarshaling
 func (b *Binder) Bind(ptr any) error {
 	val := reflect.ValueOf(ptr)
@@ -186,6 +250,8 @@ func (b *Binder) Bind(ptr any) error {
 }
 
 func (b *Binder) bindStruct(objVal reflect.Value) error {
+	var errs []error
+
 	for i := 0; i < objVal.NumField(); i++ {
 		field := objVal.Type().Field(i)
 		if !field.IsExported() {
@@ -197,17 +263,34 @@ func (b *Binder) bindStruct(objVal reflect.Value) error {
 		// If this is a struct, we need to recurse unless it's a known type we handle
 		if fieldVal.Kind() == reflect.Struct && !slices.ContainsFunc(marshalerTypes, fieldVal.Addr().Type().AssignableTo) {
 			if err := b.bindStruct(fieldVal); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		} else {
-			if err := setToDefault(field, fieldVal); err != nil {
-				return err
+			hasDefault, err := setToDefault(field, fieldVal)
+			if err != nil {
+				errs = append(errs, err)
+			} else {
+				envSet, err := b.setFromEnv(field, fieldVal)
+				if err != nil {
+					errs = append(errs, err)
+				} else if isRequired(field) && !hasDefault && !envSet {
+					errs = append(errs, &ErrRequiredField{
+						FieldName: field.Name,
+					})
+				}
 			}
-			b.setFromEnv(field, fieldVal)
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
+}
+
+func isRequired(field reflect.StructField) bool {
+	reqStr, ok := field.Tag.Lookup("required")
+	if !ok {
+		return false
+	}
+	return reqStr == "" || strings.EqualFold(reqStr, "true") || reqStr == "1"
 }
 
 func resolvePointers(val reflect.Value) reflect.Value {
@@ -220,17 +303,19 @@ func resolvePointers(val reflect.Value) reflect.Value {
 	return val
 }
 
-func setToDefault(field reflect.StructField, val reflect.Value) error {
+func setToDefault(field reflect.StructField, val reflect.Value) (bool, error) {
 	if defaultStr, ok := field.Tag.Lookup("default"); ok {
 		if err := set(val, defaultStr); err != nil {
-			return fmt.Errorf("improperly defined default on configuration field %s: %w", field.Name, err)
+			return true, fmt.Errorf("improperly defined default on configuration field %s: %w", field.Name, err)
 		}
+
+		return true, nil
 	}
 
-	return nil
+	return false, nil
 }
 
-func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) {
+func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool, error) {
 	envName, ok := field.Tag.Lookup("env")
 	if !ok {
 		envName = strings.ToUpper(field.Name)
@@ -256,29 +341,36 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) {
 		}
 	}
 
+	resolvedEnvName := primaryEnvName
 	envStr, ok := os.LookupEnv(primaryEnvName)
-	if ok {
-		envName = primaryEnvName
-	} else if secondaryEnvName != "" {
+	if !ok && secondaryEnvName != "" {
 		envStr, ok = os.LookupEnv(secondaryEnvName)
 		if ok {
-			envName = secondaryEnvName
+			resolvedEnvName = secondaryEnvName
 		}
 	}
 
 	if ok {
 		if err := set(val, envStr); err != nil {
+			if b.strict {
+				return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", resolvedEnvName, envStr, field.Name, err)
+			}
 			slog.Warn("Failed to convert environment variable. Proceeding with existing value",
 				"type", val.Type(),
-				"envName", envName,
+				"envName", resolvedEnvName,
 				"envVal", envStr,
 				"error", err)
+			return false, nil
 		}
+		return true, nil
 	}
+
+	return false, nil
 }
 
 func set(val reflect.Value, str string) error {
 	valType := val.Type()
+
 	switch valType.Kind() {
 	case reflect.Struct:
 		return convertStruct(val, str)
@@ -288,6 +380,11 @@ func set(val reflect.Value, str string) error {
 		return nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if valType == durationType {
+			return convertAndSet(str, time.ParseDuration, func(d time.Duration) {
+				val.Set(reflect.ValueOf(d))
+			})
+		}
 		return convertAndSet(str, func(str string) (int64, error) {
 			return strconv.ParseInt(str, 0, valType.Bits())
 		}, val.SetInt)
@@ -313,6 +410,9 @@ func set(val reflect.Value, str string) error {
 	case reflect.Array, reflect.Slice:
 		return convertSlice(str, val)
 
+	case reflect.Map:
+		return convertMap(str, val)
+
 	default:
 		return &ErrUnsupportedType{valType}
 	}
@@ -335,6 +435,49 @@ func convertSlice(str string, val reflect.Value) error {
 			}
 		}
 		return newVal, nil
+	}, val.Set)
+}
+
+func convertMap(str string, val reflect.Value) error {
+	return convertAndSet(str, func(str string) (reflect.Value, error) {
+		valType := val.Type()
+		keyType := valType.Key()
+		elemType := valType.Elem()
+
+		newMap := reflect.MakeMap(valType)
+		if str != "" {
+			pairs := strings.Split(str, ",")
+			newMap = reflect.MakeMapWithSize(valType, len(pairs))
+			for _, pair := range pairs {
+				pair = strings.TrimSpace(pair)
+				if pair == "" {
+					continue
+				}
+
+				keyStr, valStr, found := strings.Cut(pair, "=")
+				if !found {
+					keyStr, valStr, found = strings.Cut(pair, ":")
+				}
+				if !found {
+					return reflect.Zero(valType), fmt.Errorf("invalid map entry: must be key=value or key:value: %q", pair)
+				}
+
+				keyPtr := reflect.New(keyType)
+				keyTarget := resolvePointers(keyPtr)
+				if err := set(keyTarget, strings.TrimSpace(keyStr)); err != nil {
+					return reflect.Zero(valType), fmt.Errorf("invalid map key %q: %w", keyStr, err)
+				}
+
+				elemPtr := reflect.New(elemType)
+				elemTarget := resolvePointers(elemPtr)
+				if err := set(elemTarget, strings.TrimSpace(valStr)); err != nil {
+					return reflect.Zero(valType), fmt.Errorf("invalid map value for key %q: %w", keyStr, err)
+				}
+
+				newMap.SetMapIndex(keyPtr.Elem(), elemPtr.Elem())
+			}
+		}
+		return newMap, nil
 	}, val.Set)
 }
 
