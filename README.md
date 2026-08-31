@@ -35,7 +35,7 @@ if err := vary.Bind(&cfg); err != nil {
 If you want to use an application specific environment variable prefix in order to avoid collisions, you can configure the prefix before binding:
 
 ```go
-binder := vary.New(WithPrefix("MYAPP"))
+binder := vary.New(vary.WithPrefix("MYAPP"))
 // This will look for MYAPP_PORT, MYAPP_DEBUG, MYAPP_TIMEOUT, etc.,
 // falling back to the base name only when the one with the prefix is not set.
 binder.Bind(&cfg)
