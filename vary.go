@@ -249,35 +249,39 @@ func (b *Binder) bindStruct(objVal reflect.Value) error {
 
 	for i := 0; i < objVal.NumField(); i++ {
 		field := objVal.Type().Field(i)
-		if !field.IsExported() {
-			continue
-		}
-
-		fieldVal := resolvePointers(objVal.Field(i))
-
-		// If this is a struct, we need to recurse unless it has a registered decoder
-		if fieldVal.Kind() == reflect.Struct && !b.hasDecoder(fieldVal.Type()) {
-			if err := b.bindStruct(fieldVal); err != nil {
-				errs = append(errs, err)
-			}
-		} else {
-			hasDefault, err := b.setToDefault(field, fieldVal)
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				envSet, err := b.setFromEnv(field, fieldVal)
-				if err != nil {
-					errs = append(errs, err)
-				} else if isRequired(field) && !hasDefault && !envSet {
-					errs = append(errs, &ErrRequiredField{
-						FieldName: field.Name,
-					})
-				}
-			}
+		if field.IsExported() {
+			errs = append(errs, b.bindField(field, objVal.Field(i))...)
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value) []error {
+	var errs []error
+	fieldVal = resolvePointers(fieldVal)
+
+	// If this is a struct, we need to recurse unless it has a registered decoder
+	if fieldVal.Kind() == reflect.Struct && !b.hasDecoder(fieldVal.Type()) {
+		if err := b.bindStruct(fieldVal); err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		hasDefault, err := b.setToDefault(field, fieldVal)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			envSet, err := b.setFromEnv(field, fieldVal)
+			if err != nil {
+				errs = append(errs, err)
+			} else if isRequired(field) && !hasDefault && !envSet {
+				errs = append(errs, &ErrRequiredField{
+					FieldName: field.Name,
+				})
+			}
+		}
+	}
+	return errs
 }
 
 func isRequired(field reflect.StructField) bool {
@@ -440,35 +444,41 @@ func (b *Binder) convertMap(str string, val reflect.Value) error {
 			newMap = reflect.MakeMapWithSize(valType, len(pairs))
 			for _, pair := range pairs {
 				pair = strings.TrimSpace(pair)
-				if pair == "" {
-					continue
-				}
+				if pair != "" {
+					key, elem, err := b.getMapElement(pair, keyType, elemType)
+					if err != nil {
+						return reflect.Zero(valType), err
+					}
 
-				keyStr, valStr, found := strings.Cut(pair, "=")
-				if !found {
-					keyStr, valStr, found = strings.Cut(pair, ":")
+					newMap.SetMapIndex(key, elem)
 				}
-				if !found {
-					return reflect.Zero(valType), fmt.Errorf("invalid map entry: must be key=value or key:value: %q", pair)
-				}
-
-				keyPtr := reflect.New(keyType)
-				keyTarget := resolvePointers(keyPtr)
-				if err := b.set(keyTarget, strings.TrimSpace(keyStr)); err != nil {
-					return reflect.Zero(valType), fmt.Errorf("invalid map key %q: %w", keyStr, err)
-				}
-
-				elemPtr := reflect.New(elemType)
-				elemTarget := resolvePointers(elemPtr)
-				if err := b.set(elemTarget, strings.TrimSpace(valStr)); err != nil {
-					return reflect.Zero(valType), fmt.Errorf("invalid map value for key %q: %w", keyStr, err)
-				}
-
-				newMap.SetMapIndex(keyPtr.Elem(), elemPtr.Elem())
 			}
 		}
 		return newMap, nil
 	}, val.Set)
+}
+
+func (b *Binder) getMapElement(pair string, keyType reflect.Type, elemType reflect.Type) (reflect.Value, reflect.Value, error) {
+	keyStr, valStr, found := strings.Cut(pair, "=")
+	if !found {
+		keyStr, valStr, found = strings.Cut(pair, ":")
+	}
+	if !found {
+		return reflect.Zero(keyType), reflect.Zero(elemType), fmt.Errorf("invalid map entry: must be key=value or key:value: %q", pair)
+	}
+
+	keyPtr := reflect.New(keyType)
+	keyTarget := resolvePointers(keyPtr)
+	if err := b.set(keyTarget, strings.TrimSpace(keyStr)); err != nil {
+		return reflect.Zero(keyType), reflect.Zero(elemType), fmt.Errorf("invalid map key %q: %w", keyStr, err)
+	}
+
+	elemPtr := reflect.New(elemType)
+	elemTarget := resolvePointers(elemPtr)
+	if err := b.set(elemTarget, strings.TrimSpace(valStr)); err != nil {
+		return reflect.Zero(keyType), reflect.Zero(elemType), fmt.Errorf("invalid map value for key %q: %w", keyStr, err)
+	}
+	return keyPtr.Elem(), elemPtr.Elem(), nil
 }
 
 func convertAndSet[T any](str string, converter func(str string) (T, error), setter func(val T)) error {
