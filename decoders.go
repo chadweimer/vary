@@ -25,10 +25,11 @@ func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 	val := reflect.ValueOf(decoder)
 	targetType := reflect.TypeFor[T]()
 	if targetType.Kind() != reflect.Pointer && targetType.Kind() != reflect.Interface {
-		return b.registerDecoder(targetType, decoderEntry{
+		b.registerDecoder(targetType, decoderEntry{
 			fn:        val,
 			isMutator: false,
 		})
+		return nil
 	}
 
 	return errors.New("decoder must be a function with signature func(string) (T, error), where T is not an interface or pointer type")
@@ -46,22 +47,22 @@ func RegisterMutatingDecoder[T any](b *Binder, decoder func(string, T) error) er
 	val := reflect.ValueOf(decoder)
 	targetType := reflect.TypeFor[T]()
 	if targetType.Kind() == reflect.Interface {
-		return b.registerDecoder(targetType, decoderEntry{
+		b.registerDecoder(targetType, decoderEntry{
 			fn:        val,
 			isMutator: true,
 		})
+		return nil
 	}
 
 	return errors.New("decoder must be a function with signature func(string, T) error, where T is an interface")
 }
 
-func (b *Binder) registerDecoder(targetType reflect.Type, entry decoderEntry) error {
+func (b *Binder) registerDecoder(targetType reflect.Type, entry decoderEntry) {
 	if b.decoders == nil {
 		b.decoders = make(map[reflect.Type]decoderEntry)
 	}
 
 	b.decoders[targetType] = entry
-	return nil
 }
 
 func (b *Binder) initDefaultDecoders() {
