@@ -2,7 +2,7 @@
 //
 // It automatically populates struct fields from environment variables based on struct tags.
 // The package supports a wide range of Go types including primitives, time.Duration, maps,
-// slices, and custom types that implement standard marshaling interfaces.
+// slices, custom types with registered decoders, and custom types that implement standard marshaling interfaces.
 //
 // Basic Usage:
 //
@@ -35,21 +35,21 @@
 //   - Slices and Arrays of any supported type (comma-separated values)
 //   - Any type implementing encoding.TextUnmarshaler
 //   - Any type implementing encoding.BinaryUnmarshaler
+//   - Any type with a registered custom decoder
 //   - Nested structs (recursively bound)
 package vary
 
 import (
-	"encoding"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
-	"time"
 )
+
+var errorType = reflect.TypeFor[error]()
 
 // --- Error types ---
 
@@ -79,18 +79,6 @@ func (e *ErrUnsupportedType) Error() string {
 	return fmt.Sprintf("unsupported field type: %s", e.fieldType)
 }
 
-// --- Marshaling ---
-
-var (
-	textUnmarshalerType   = reflect.TypeFor[encoding.TextUnmarshaler]()
-	binaryUnmarshalerType = reflect.TypeFor[encoding.BinaryUnmarshaler]()
-	durationType          = reflect.TypeFor[time.Duration]()
-	marshalerTypes        = []reflect.Type{
-		textUnmarshalerType,
-		binaryUnmarshalerType,
-	}
-)
-
 // --- Bind ---
 
 // PrefixHandling defines how the binder should handle prefixes when binding environment variables to struct fields.
@@ -119,6 +107,7 @@ type Binder struct {
 	prefix         string
 	prefixHandling PrefixHandling
 	strict         bool
+	decoders       map[reflect.Type]decoderEntry
 }
 
 // Option is a function that configures a Binder.
@@ -165,10 +154,15 @@ func New(opts ...Option) *Binder {
 		prefix:         "",
 		prefixHandling: PrefixHandlingPrimary,
 		strict:         false,
+		decoders:       make(map[reflect.Type]decoderEntry),
 	}
+
+	b.initDefaultDecoders()
+
 	for _, opt := range opts {
 		opt(b)
 	}
+
 	return b
 }
 
@@ -213,6 +207,7 @@ func Bind(ptr any) error {
 //   - Nested structs (recursively bound with optional prefix handling)
 //   - Types implementing encoding.TextUnmarshaler
 //   - Types implementing encoding.BinaryUnmarshaler
+//   - Types with registered custom decoders
 //
 // Marshaler Types:
 // Bind recognizes and uses the following standard Go marshaling interfaces:
@@ -260,13 +255,13 @@ func (b *Binder) bindStruct(objVal reflect.Value) error {
 
 		fieldVal := resolvePointers(objVal.Field(i))
 
-		// If this is a struct, we need to recurse unless it's a known type we handle
-		if fieldVal.Kind() == reflect.Struct && !slices.ContainsFunc(marshalerTypes, fieldVal.Addr().Type().AssignableTo) {
+		// If this is a struct, we need to recurse unless it has a registered decoder
+		if fieldVal.Kind() == reflect.Struct && !b.hasDecoder(fieldVal.Type()) {
 			if err := b.bindStruct(fieldVal); err != nil {
 				errs = append(errs, err)
 			}
 		} else {
-			hasDefault, err := setToDefault(field, fieldVal)
+			hasDefault, err := b.setToDefault(field, fieldVal)
 			if err != nil {
 				errs = append(errs, err)
 			} else {
@@ -303,9 +298,9 @@ func resolvePointers(val reflect.Value) reflect.Value {
 	return val
 }
 
-func setToDefault(field reflect.StructField, val reflect.Value) (bool, error) {
+func (b *Binder) setToDefault(field reflect.StructField, val reflect.Value) (bool, error) {
 	if defaultStr, ok := field.Tag.Lookup("default"); ok {
-		if err := set(val, defaultStr); err != nil {
+		if err := b.set(val, defaultStr); err != nil {
 			return true, fmt.Errorf("improperly defined default on configuration field %s: %w", field.Name, err)
 		}
 
@@ -351,7 +346,7 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 	}
 
 	if ok {
-		if err := set(val, envStr); err != nil {
+		if err := b.set(val, envStr); err != nil {
 			if b.strict {
 				return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", resolvedEnvName, envStr, field.Name, err)
 			}
@@ -368,23 +363,18 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 	return false, nil
 }
 
-func set(val reflect.Value, str string) error {
+func (b *Binder) set(val reflect.Value, str string) error {
+	if handled, err := b.decode(val, str); handled {
+		return err
+	}
+
 	valType := val.Type()
-
 	switch valType.Kind() {
-	case reflect.Struct:
-		return convertStruct(val, str)
-
 	case reflect.String:
 		val.SetString(str)
 		return nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if valType == durationType {
-			return convertAndSet(str, time.ParseDuration, func(d time.Duration) {
-				val.Set(reflect.ValueOf(d))
-			})
-		}
 		return convertAndSet(str, func(str string) (int64, error) {
 			return strconv.ParseInt(str, 0, valType.Bits())
 		}, val.SetInt)
@@ -408,17 +398,17 @@ func set(val reflect.Value, str string) error {
 		return convertAndSet(str, strconv.ParseBool, val.SetBool)
 
 	case reflect.Array, reflect.Slice:
-		return convertSlice(str, val)
+		return b.convertSlice(str, val)
 
 	case reflect.Map:
-		return convertMap(str, val)
+		return b.convertMap(str, val)
 
 	default:
 		return &ErrUnsupportedType{valType}
 	}
 }
 
-func convertSlice(str string, val reflect.Value) error {
+func (b *Binder) convertSlice(str string, val reflect.Value) error {
 	return convertAndSet(str, func(str string) (reflect.Value, error) {
 		valType := val.Type()
 		newVal := reflect.MakeSlice(valType, 0, 0)
@@ -428,7 +418,7 @@ func convertSlice(str string, val reflect.Value) error {
 			for _, segment := range segments {
 				elementPtr := reflect.New(valType.Elem())
 				element := resolvePointers(elementPtr)
-				if err := set(element, strings.TrimSpace(segment)); err != nil {
+				if err := b.set(element, strings.TrimSpace(segment)); err != nil {
 					return reflect.Zero(valType), err
 				}
 				newVal = reflect.Append(newVal, elementPtr.Elem())
@@ -438,7 +428,7 @@ func convertSlice(str string, val reflect.Value) error {
 	}, val.Set)
 }
 
-func convertMap(str string, val reflect.Value) error {
+func (b *Binder) convertMap(str string, val reflect.Value) error {
 	return convertAndSet(str, func(str string) (reflect.Value, error) {
 		valType := val.Type()
 		keyType := valType.Key()
@@ -464,13 +454,13 @@ func convertMap(str string, val reflect.Value) error {
 
 				keyPtr := reflect.New(keyType)
 				keyTarget := resolvePointers(keyPtr)
-				if err := set(keyTarget, strings.TrimSpace(keyStr)); err != nil {
+				if err := b.set(keyTarget, strings.TrimSpace(keyStr)); err != nil {
 					return reflect.Zero(valType), fmt.Errorf("invalid map key %q: %w", keyStr, err)
 				}
 
 				elemPtr := reflect.New(elemType)
 				elemTarget := resolvePointers(elemPtr)
-				if err := set(elemTarget, strings.TrimSpace(valStr)); err != nil {
+				if err := b.set(elemTarget, strings.TrimSpace(valStr)); err != nil {
 					return reflect.Zero(valType), fmt.Errorf("invalid map value for key %q: %w", keyStr, err)
 				}
 
@@ -479,23 +469,6 @@ func convertMap(str string, val reflect.Value) error {
 		}
 		return newMap, nil
 	}, val.Set)
-}
-
-func convertStruct(val reflect.Value, str string) error {
-	addr := val.Addr()
-	addrType := addr.Type()
-	if addrType.AssignableTo(textUnmarshalerType) {
-		unmarshaler, ok := addr.Interface().(encoding.TextUnmarshaler)
-		if ok {
-			return unmarshaler.UnmarshalText([]byte(str))
-		}
-	} else if addrType.AssignableTo(binaryUnmarshalerType) {
-		marshaler, ok := addr.Interface().(encoding.BinaryUnmarshaler)
-		if ok {
-			return marshaler.UnmarshalBinary([]byte(str))
-		}
-	}
-	return &ErrUnsupportedType{val.Type()}
 }
 
 func convertAndSet[T any](str string, converter func(str string) (T, error), setter func(val T)) error {

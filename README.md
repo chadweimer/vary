@@ -41,7 +41,31 @@ binder := vary.New(vary.WithPrefix("MYAPP"))
 binder.Bind(&cfg)
 ```
 
-Refer to the documentation for more information on prefixes, strict mode, and how to control the order of precedence between names.
+### Custom Decoders
+
+You can register custom decoder functions for custom types:
+
+```go
+// Decoding to a new value
+vary.RegisterDecoder(func(s string) (CustomType, error) {
+    return parseCustomType(s)
+})
+// Mutating the value of any type that implements a custom interface
+vary.RegisterDecoder(func(s string, i CustomDecodingInterface) error {
+    return i.CustomDecodeMethod(s)
+})
+
+// Or by registering on an instance of a binder
+binder := vary.New()
+binder.RegisterDecoder(func(s string) (CustomType, error) {
+    return parseCustomType(s)
+})
+binder.RegisterDecoder(func(s string, i CustomDecodingInterface) error {
+    return i.CustomDecodeMethod(s)
+})
+```
+
+Refer to the documentation for more information on prefixes, custom decoders, strict mode, and how to control the order of precedence between names.
 
 ## Documentation
 
