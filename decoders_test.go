@@ -60,10 +60,10 @@ func TestBinder_RegisterDecoder(t *testing.T) {
 	}
 
 	binder := New()
-	if err := binder.RegisterDecoder(parsePoint); err != nil {
+	if err := RegisterDecoder(binder, parsePoint); err != nil {
 		t.Fatalf("RegisterDecoder(parsePoint) unexpected error: %v", err)
 	}
-	if err := binder.RegisterDecoder(parseSize); err != nil {
+	if err := RegisterDecoder(binder, parseSize); err != nil {
 		t.Fatalf("RegisterDecoder(parseSize) unexpected error: %v", err)
 	}
 
@@ -132,82 +132,61 @@ func TestBinder_RegisterDecoder_InvalidSignature(t *testing.T) {
 	binder := New()
 
 	tests := []struct {
-		name    string
-		decoder any
+		name        string
+		registrator func(b *Binder) error
 	}{
 		{
-			name:    "nil",
-			decoder: nil,
-		},
-		{
-			name:    "not a func",
-			decoder: "not a function",
-		},
-		{
-			name: "no in params",
-			decoder: func() (testCustomPoint, error) {
-				return testCustomPoint{}, nil
+			name: "nil",
+			registrator: func(b *Binder) error {
+				return RegisterDecoder[testCustomPoint](b, nil)
 			},
 		},
 		{
-			name: "three in params",
-			decoder: func(s1, s2, s3 string) error {
-				return nil
-			},
-		},
-		{
-			name: "two in params neither string",
-			decoder: func(i, j int) error {
-				return nil
-			},
-		},
-		{
-			name: "two in params with two out params",
-			decoder: func(s1, s2 string) (testCustomPoint, error) {
-				return testCustomPoint{}, nil
-			},
-		},
-		{
-			name: "int in param single",
-			decoder: func(i int) (testCustomPoint, error) {
-				return testCustomPoint{}, nil
-			},
-		},
-		{
-			name: "one return value not error",
-			decoder: func(s string) testCustomPoint {
-				return testCustomPoint{}
-			},
-		},
-		{
-			name: "three return values",
-			decoder: func(s string) (testCustomPoint, int, error) {
-				return testCustomPoint{}, 0, nil
-			},
-		},
-		{
-			name: "two return values second not error",
-			decoder: func(s string) (testCustomPoint, int) {
-				return testCustomPoint{}, 0
-			},
-		},
-		{
-			name: "two in params return not error",
-			decoder: func(s string, p testCustomPoint) int {
-				return 0
-			},
-		},
-		{
-			name: "pointer in params",
-			decoder: func(s string, p *testCustomPoint) error {
-				return nil
+			name: "pointer",
+			registrator: func(b *Binder) error {
+				return RegisterDecoder(b, func(string) (*testCustomPoint, error) {
+					return &testCustomPoint{}, nil
+				})
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := binder.RegisterDecoder(tt.decoder)
+			err := tt.registrator(binder)
+			if !errors.Is(err, ErrInvalidDecoder) {
+				t.Errorf("RegisterDecoder() error = %v, want %v", err, ErrInvalidDecoder)
+			}
+		})
+	}
+}
+
+func TestBinder_RegisterMutatingDecoder_InvalidSignature(t *testing.T) {
+	binder := New()
+
+	tests := []struct {
+		name        string
+		registrator func(b *Binder) error
+	}{
+		{
+			name: "nil",
+			registrator: func(b *Binder) error {
+				return RegisterMutatingDecoder[testCustomPoint](b, nil)
+			},
+		},
+		{
+			name: "pointer",
+			registrator: func(b *Binder) error {
+				return RegisterMutatingDecoder(b, func(string, *testCustomPoint) error {
+					return nil
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.registrator(binder)
 			if !errors.Is(err, ErrInvalidDecoder) {
 				t.Errorf("RegisterDecoder() error = %v, want %v", err, ErrInvalidDecoder)
 			}
@@ -221,7 +200,7 @@ func TestRegisterDecoder_Global(t *testing.T) {
 		Score customScore `env:"SCORE" default:"100"`
 	}
 
-	err := RegisterDecoder(func(s string) (customScore, error) {
+	err := RegisterDecoder(DefaultBinder, func(s string) (customScore, error) {
 		val, err := strconv.Atoi(s)
 		if err != nil {
 			return 0, err
@@ -250,7 +229,7 @@ func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
 	t.Run("Permissive ignores invalid env", func(t *testing.T) {
 		t.Setenv("POINT", "invalid_point")
 		binder := New()
-		_ = binder.RegisterDecoder(parsePoint)
+		_ = RegisterDecoder(binder, parsePoint)
 		var cfg config
 		if err := binder.Bind(&cfg); err != nil {
 			t.Fatalf("Bind() unexpected error in permissive mode: %v", err)
@@ -263,7 +242,7 @@ func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
 	t.Run("Strict returns error on invalid env", func(t *testing.T) {
 		t.Setenv("POINT", "invalid_point")
 		binder := New(WithStrict(true))
-		_ = binder.RegisterDecoder(parsePoint)
+		_ = RegisterDecoder(binder, parsePoint)
 		var cfg config
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error in strict mode, got nil")
@@ -275,7 +254,7 @@ func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
 			Point testCustomPoint `default:"invalid"`
 		}
 		binder := New()
-		_ = binder.RegisterDecoder(parsePoint)
+		_ = RegisterDecoder(binder, parsePoint)
 		var cfg badConfig
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error on invalid default, got nil")

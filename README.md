@@ -46,21 +46,13 @@ binder.Bind(&cfg)
 You can register custom decoder functions for custom types:
 
 ```go
+binder := vary.New()
 // Decoding to a new value
-vary.RegisterDecoder(func(s string) (CustomType, error) {
+vary.RegisterDecoder(binder, func(s string) (CustomType, error) {
     return parseCustomType(s)
 })
 // Mutating the value of any type that implements a custom interface
-vary.RegisterDecoder(func(s string, i CustomDecodingInterface) error {
-    return i.CustomDecodeMethod(s)
-})
-
-// Or by registering on an instance of a binder
-binder := vary.New()
-binder.RegisterDecoder(func(s string) (CustomType, error) {
-    return parseCustomType(s)
-})
-binder.RegisterDecoder(func(s string, i CustomDecodingInterface) error {
+vary.RegisterMutatingDecoder(binder, func(s string, i CustomDecodingInterface) error {
     return i.CustomDecodeMethod(s)
 })
 ```

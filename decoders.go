@@ -16,43 +16,39 @@ type decoderEntry struct {
 	isMutator bool
 }
 
-// RegisterDecoder registers a custom decoder function with the default binder.
-func RegisterDecoder(decoder any) error {
-	return DefaultBinder.RegisterDecoder(decoder)
-}
-
-// RegisterDecoder registers a custom decoder function for a specific type or interface.
-// The decoder must be a function with signature:
-//   - func(string) (T, error) to parse and return a new value of type T, or
-//   - func(string, T) error to unmarshal into an interface of type T.
-//
-// T must not be a pointer type in both forms.
+// RegisterDecoder registers a custom decoder function for a specific type T, where T must not be a pointer type.
+// The decoder function must return a new value of type T.
 //
 // Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
-func (b *Binder) RegisterDecoder(decoder any) error {
+func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 	if decoder == nil {
 		return ErrInvalidDecoder
 	}
 
 	val := reflect.ValueOf(decoder)
-	typ := val.Type()
-
-	if typ.Kind() != reflect.Func {
-		return ErrInvalidDecoder
-	}
-
-	// Form 1: func(string) (T, error)
-	if typ.NumIn() == 1 && typ.In(0).Kind() == reflect.String && typ.NumOut() == 2 && typ.Out(0).Kind() != reflect.Pointer && typ.Out(1).AssignableTo(errorType) {
-		targetType := typ.Out(0)
+	targetType := reflect.TypeFor[T]()
+	if targetType.Kind() != reflect.Pointer && targetType.Kind() != reflect.Interface {
 		return b.registerDecoder(targetType, decoderEntry{
 			fn:        val,
 			isMutator: false,
 		})
 	}
 
-	// Form 2: func(string, T) error
-	if typ.NumIn() == 2 && typ.In(0).Kind() == reflect.String && typ.In(1).Kind() == reflect.Interface && typ.NumOut() == 1 && typ.Out(0).AssignableTo(errorType) {
-		targetType := typ.In(1)
+	return ErrInvalidDecoder
+}
+
+// RegisterMutatingDecoder registers a custom decoder function for an interface of type T, where T must not be a pointer type.
+// The decoder function must use the supplied object of type T to unmarshal and mutate in-place.
+//
+// Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
+func RegisterMutatingDecoder[T any](b *Binder, decoder func(string, T) error) error {
+	if decoder == nil {
+		return ErrInvalidDecoder
+	}
+
+	val := reflect.ValueOf(decoder)
+	targetType := reflect.TypeFor[T]()
+	if targetType.Kind() == reflect.Interface {
 		return b.registerDecoder(targetType, decoderEntry{
 			fn:        val,
 			isMutator: true,
@@ -72,13 +68,11 @@ func (b *Binder) registerDecoder(targetType reflect.Type, entry decoderEntry) er
 }
 
 func (b *Binder) initDefaultDecoders() {
-	_ = b.RegisterDecoder(func(s string) (time.Duration, error) {
-		return time.ParseDuration(s)
-	})
-	_ = b.RegisterDecoder(func(s string, u encoding.TextUnmarshaler) error {
+	_ = RegisterDecoder(b, time.ParseDuration)
+	_ = RegisterMutatingDecoder(b, func(s string, u encoding.TextUnmarshaler) error {
 		return u.UnmarshalText([]byte(s))
 	})
-	_ = b.RegisterDecoder(func(s string, u encoding.BinaryUnmarshaler) error {
+	_ = RegisterMutatingDecoder(b, func(s string, u encoding.BinaryUnmarshaler) error {
 		return u.UnmarshalBinary([]byte(s))
 	})
 }
