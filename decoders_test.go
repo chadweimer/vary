@@ -153,9 +153,8 @@ func TestBinder_RegisterDecoder_InvalidSignature(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.registrator(binder)
-			if !errors.Is(err, ErrInvalidDecoder) {
-				t.Errorf("RegisterDecoder() error = %v, want %v", err, ErrInvalidDecoder)
+			if err := tt.registrator(binder); err == nil {
+				t.Fatalf("RegisterDecoder() expected error on invalid decoder, got nil")
 			}
 		})
 	}
@@ -186,9 +185,8 @@ func TestBinder_RegisterMutatingDecoder_InvalidSignature(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.registrator(binder)
-			if !errors.Is(err, ErrInvalidDecoder) {
-				t.Errorf("RegisterDecoder() error = %v, want %v", err, ErrInvalidDecoder)
+			if err := tt.registrator(binder); err == nil {
+				t.Fatalf("RegisterMutatingDecoder() expected error on invalid decoder, got nil")
 			}
 		})
 	}

@@ -8,21 +8,18 @@ import (
 	"time"
 )
 
-// ErrInvalidDecoder is returned when an invalid decoder function is registered.
-var ErrInvalidDecoder = errors.New("decoder must be a function with signature func(string) (T, error) or func(string, T) error, where T is not a pointer type")
-
 type decoderEntry struct {
 	fn        reflect.Value
 	isMutator bool
 }
 
-// RegisterDecoder registers a custom decoder function for a specific type T, where T must not be a pointer type.
+// RegisterDecoder registers a custom decoder function for a specific type T, where T must not be an interface or pointer type.
 // The decoder function must return a new value of type T.
 //
 // Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
 func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 	if decoder == nil {
-		return ErrInvalidDecoder
+		return errors.New("decoder must not be nil")
 	}
 
 	val := reflect.ValueOf(decoder)
@@ -34,16 +31,16 @@ func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 		})
 	}
 
-	return ErrInvalidDecoder
+	return errors.New("decoder must be a function with signature func(string) (T, error), where T is not an interface or pointer type")
 }
 
-// RegisterMutatingDecoder registers a custom decoder function for an interface of type T, where T must not be a pointer type.
+// RegisterMutatingDecoder registers a custom decoder function for an interface of type T, where T must be an interface type.
 // The decoder function must use the supplied object of type T to unmarshal and mutate in-place.
 //
 // Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
 func RegisterMutatingDecoder[T any](b *Binder, decoder func(string, T) error) error {
 	if decoder == nil {
-		return ErrInvalidDecoder
+		return errors.New("decoder must not be nil")
 	}
 
 	val := reflect.ValueOf(decoder)
@@ -55,7 +52,7 @@ func RegisterMutatingDecoder[T any](b *Binder, decoder func(string, T) error) er
 		})
 	}
 
-	return ErrInvalidDecoder
+	return errors.New("decoder must be a function with signature func(string, T) error, where T is an interface")
 }
 
 func (b *Binder) registerDecoder(targetType reflect.Type, entry decoderEntry) error {
