@@ -49,8 +49,6 @@ import (
 	"strings"
 )
 
-var errorType = reflect.TypeFor[error]()
-
 // --- Error types ---
 
 var (
