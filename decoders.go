@@ -16,7 +16,7 @@ type decoderEntry struct {
 // RegisterDecoder registers a custom decoder function for a specific type T, where T must not be an interface or pointer type.
 // The decoder function must return a new value of type T.
 //
-// Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
+// Returns an error if an argument is nil or the supplied function does not match a supported signature.
 func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 	if b == nil {
 		return errors.New("binder must not be nil")
@@ -41,7 +41,7 @@ func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 // RegisterMutatingDecoder registers a custom decoder function for an interface of type T, where T must be an interface type.
 // The decoder function must use the supplied object of type T to unmarshal and mutate in-place.
 //
-// Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
+// Returns an error if an argument is nil or the supplied function does not match a supported signature.
 func RegisterMutatingDecoder[T any](b *Binder, decoder func(string, T) error) error {
 	if b == nil {
 		return errors.New("binder must not be nil")
