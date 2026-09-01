@@ -18,6 +18,9 @@ type decoderEntry struct {
 //
 // Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
 func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
+	if b == nil {
+		return errors.New("binder must not be nil")
+	}
 	if decoder == nil {
 		return errors.New("decoder must not be nil")
 	}
@@ -40,6 +43,9 @@ func RegisterDecoder[T any](b *Binder, decoder func(string) (T, error)) error {
 //
 // Returns ErrInvalidDecoder if the supplied function does not match a supported signature.
 func RegisterMutatingDecoder[T any](b *Binder, decoder func(string, T) error) error {
+	if b == nil {
+		return errors.New("binder must not be nil")
+	}
 	if decoder == nil {
 		return errors.New("decoder must not be nil")
 	}
