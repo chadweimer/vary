@@ -2,7 +2,7 @@
 //
 // It automatically populates struct fields from environment variables based on struct tags.
 // The package supports a wide range of Go types including primitives, time.Duration, maps,
-// slices, custom types with registered decoders, and custom types that implement standard marshaling interfaces.
+// slices, custom types with registered marshalers, and custom types that implement standard marshaling interfaces.
 //
 // Basic Usage:
 //
@@ -35,7 +35,7 @@
 //   - Slices and Arrays of any supported type (comma-separated values)
 //   - Any type implementing encoding.TextUnmarshaler
 //   - Any type implementing encoding.BinaryUnmarshaler
-//   - Any type with a registered custom decoder
+//   - Any type with a registered custom marshaler
 //   - Nested structs (recursively bound)
 package vary
 
@@ -105,7 +105,7 @@ type Binder struct {
 	prefix         string
 	prefixHandling PrefixHandling
 	strict         bool
-	decoders       map[reflect.Type]decoderEntry
+	marshalers     map[reflect.Type]marshaler
 }
 
 // Option is a function that configures a Binder.
@@ -152,10 +152,10 @@ func New(opts ...Option) *Binder {
 		prefix:         "",
 		prefixHandling: PrefixHandlingPrimary,
 		strict:         false,
-		decoders:       make(map[reflect.Type]decoderEntry),
+		marshalers:     make(map[reflect.Type]marshaler),
 	}
 
-	b.initDefaultDecoders()
+	b.initDefaultMarshalers()
 
 	for _, opt := range opts {
 		opt(b)
@@ -205,7 +205,7 @@ func Bind(ptr any) error {
 //   - Nested structs (recursively bound with optional prefix handling)
 //   - Types implementing encoding.TextUnmarshaler
 //   - Types implementing encoding.BinaryUnmarshaler
-//   - Types with registered custom decoders
+//   - Types with registered custom marshalers
 //
 // Marshaler Types:
 // Bind recognizes and uses the following standard Go marshaling interfaces:
@@ -259,8 +259,8 @@ func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value) []
 	var errs []error
 	fieldVal = resolvePointers(fieldVal)
 
-	// If this is a struct, we need to recurse unless it has a registered decoder
-	if fieldVal.Kind() == reflect.Struct && !b.hasDecoder(fieldVal.Type()) {
+	// If this is a struct, we need to recurse unless it has a registered marshaler
+	if fieldVal.Kind() == reflect.Struct && b.getMarshaler(fieldVal.Type()) == nil {
 		if err := b.bindStruct(fieldVal); err != nil {
 			errs = append(errs, err)
 		}
@@ -366,8 +366,9 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 }
 
 func (b *Binder) set(val reflect.Value, str string) error {
-	if handled, err := b.decode(val, str); handled {
-		return err
+	marshaler := b.getMarshaler(val.Type())
+	if marshaler != nil {
+		return marshaler.Decode(val, str)
 	}
 
 	valType := val.Type()

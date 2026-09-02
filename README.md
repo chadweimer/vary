@@ -41,23 +41,23 @@ binder := vary.New(vary.WithPrefix("MYAPP"))
 binder.Bind(&cfg)
 ```
 
-### Custom Decoders
+### Custom Marshalers
 
-You can register custom decoder functions for custom types:
+You can register custom marshaler functions for custom types:
 
 ```go
 binder := vary.New()
 // Decoding to a new value
-vary.RegisterDecoder(binder, func(s string) (CustomType, error) {
+vary.RegisterMarshaler(binder, func(s string) (CustomType, error) {
     return parseCustomType(s)
 })
 // Mutating the value of any type that implements a custom interface
-vary.RegisterMutatingDecoder(binder, func(s string, i CustomDecodingInterface) error {
+vary.RegisterMutatingMarshaler(binder, func(s string, i CustomDecodingInterface) error {
     return i.CustomDecodeMethod(s)
 })
 ```
 
-Refer to the documentation for more information on prefixes, custom decoders, strict mode, and how to control the order of precedence between names.
+Refer to the documentation for more information on prefixes, custom marshalers, strict mode, and how to control the order of precedence between names.
 
 ## Documentation
 

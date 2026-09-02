@@ -1,6 +1,7 @@
 package vary
 
 import (
+	"encoding"
 	"errors"
 	"reflect"
 	"strconv"
@@ -50,7 +51,7 @@ func parseSize(s string) (testCustomSize, error) {
 	return testCustomSize{W: w, H: h}, nil
 }
 
-func TestBinder_RegisterDecoder(t *testing.T) {
+func TestBinder_RegisterMarshaler(t *testing.T) {
 	type config struct {
 		Point       testCustomPoint            `env:"POINT" default:"10:20"`
 		Points      []testCustomPoint          `env:"POINTS" default:"1:2,3:4"`
@@ -60,11 +61,11 @@ func TestBinder_RegisterDecoder(t *testing.T) {
 	}
 
 	binder := New()
-	if err := RegisterDecoder(binder, parsePoint); err != nil {
-		t.Fatalf("RegisterDecoder(parsePoint) unexpected error: %v", err)
+	if err := RegisterMarshaler(binder, parsePoint); err != nil {
+		t.Fatalf("RegisterMarshaler(parsePoint) unexpected error: %v", err)
 	}
-	if err := RegisterDecoder(binder, parseSize); err != nil {
-		t.Fatalf("RegisterDecoder(parseSize) unexpected error: %v", err)
+	if err := RegisterMarshaler(binder, parseSize); err != nil {
+		t.Fatalf("RegisterMarshaler(parseSize) unexpected error: %v", err)
 	}
 
 	t.Run("Defaults", func(t *testing.T) {
@@ -128,7 +129,7 @@ func TestBinder_RegisterDecoder(t *testing.T) {
 	})
 }
 
-func TestBinder_RegisterDecoder_InvalidSignature(t *testing.T) {
+func TestBinder_RegisterMarshaler_Invalid(t *testing.T) {
 	binder := New()
 
 	tests := []struct {
@@ -136,15 +137,21 @@ func TestBinder_RegisterDecoder_InvalidSignature(t *testing.T) {
 		registrator func(b *Binder) error
 	}{
 		{
-			name: "nil",
+			name: "nil binder",
 			registrator: func(b *Binder) error {
-				return RegisterDecoder[testCustomPoint](b, nil)
+				return RegisterMarshaler(nil, parsePoint)
+			},
+		},
+		{
+			name: "nil marshaler",
+			registrator: func(b *Binder) error {
+				return RegisterMarshaler[testCustomPoint](b, nil)
 			},
 		},
 		{
 			name: "pointer",
 			registrator: func(b *Binder) error {
-				return RegisterDecoder(b, func(string) (*testCustomPoint, error) {
+				return RegisterMarshaler(b, func(string) (*testCustomPoint, error) {
 					return &testCustomPoint{}, nil
 				})
 			},
@@ -154,13 +161,13 @@ func TestBinder_RegisterDecoder_InvalidSignature(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.registrator(binder); err == nil {
-				t.Fatalf("RegisterDecoder() expected error on invalid decoder, got nil")
+				t.Fatalf("RegisterMarshaler() expected error on invalid marshaler, got nil")
 			}
 		})
 	}
 }
 
-func TestBinder_RegisterMutatingDecoder_InvalidSignature(t *testing.T) {
+func TestBinder_RegisterMutatingMarshaler_Invalid(t *testing.T) {
 	binder := New()
 
 	tests := []struct {
@@ -168,15 +175,23 @@ func TestBinder_RegisterMutatingDecoder_InvalidSignature(t *testing.T) {
 		registrator func(b *Binder) error
 	}{
 		{
-			name: "nil",
+			name: "nil binder",
 			registrator: func(b *Binder) error {
-				return RegisterMutatingDecoder[testCustomPoint](b, nil)
+				return RegisterMutatingMarshaler(nil, func(string, encoding.TextUnmarshaler) error {
+					return nil
+				})
+			},
+		},
+		{
+			name: "nil marshaler",
+			registrator: func(b *Binder) error {
+				return RegisterMutatingMarshaler[testCustomPoint](b, nil)
 			},
 		},
 		{
 			name: "pointer",
 			registrator: func(b *Binder) error {
-				return RegisterMutatingDecoder(b, func(string, *testCustomPoint) error {
+				return RegisterMutatingMarshaler(b, func(string, *testCustomPoint) error {
 					return nil
 				})
 			},
@@ -186,19 +201,19 @@ func TestBinder_RegisterMutatingDecoder_InvalidSignature(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.registrator(binder); err == nil {
-				t.Fatalf("RegisterMutatingDecoder() expected error on invalid decoder, got nil")
+				t.Fatalf("RegisterMutatingMarshaler() expected error on invalid marshaler, got nil")
 			}
 		})
 	}
 }
 
-func TestRegisterDecoder_Global(t *testing.T) {
+func TestRegisterMarshaler_Global(t *testing.T) {
 	type customScore int
 	type config struct {
 		Score customScore `env:"SCORE" default:"100"`
 	}
 
-	err := RegisterDecoder(DefaultBinder, func(s string) (customScore, error) {
+	err := RegisterMarshaler(DefaultBinder, func(s string) (customScore, error) {
 		val, err := strconv.Atoi(s)
 		if err != nil {
 			return 0, err
@@ -206,7 +221,7 @@ func TestRegisterDecoder_Global(t *testing.T) {
 		return customScore(val * 2), nil
 	})
 	if err != nil {
-		t.Fatalf("RegisterDecoder(nil, fn) error: %v", err)
+		t.Fatalf("RegisterMarshaler(nil, fn) error: %v", err)
 	}
 
 	var cfg config
@@ -219,7 +234,7 @@ func TestRegisterDecoder_Global(t *testing.T) {
 	}
 }
 
-func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
+func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 	type config struct {
 		Point testCustomPoint `env:"POINT" default:"1:2"`
 	}
@@ -227,7 +242,7 @@ func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
 	t.Run("Permissive ignores invalid env", func(t *testing.T) {
 		t.Setenv("POINT", "invalid_point")
 		binder := New()
-		_ = RegisterDecoder(binder, parsePoint)
+		_ = RegisterMarshaler(binder, parsePoint)
 		var cfg config
 		if err := binder.Bind(&cfg); err != nil {
 			t.Fatalf("Bind() unexpected error in permissive mode: %v", err)
@@ -240,7 +255,7 @@ func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
 	t.Run("Strict returns error on invalid env", func(t *testing.T) {
 		t.Setenv("POINT", "invalid_point")
 		binder := New(WithStrict(true))
-		_ = RegisterDecoder(binder, parsePoint)
+		_ = RegisterMarshaler(binder, parsePoint)
 		var cfg config
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error in strict mode, got nil")
@@ -252,7 +267,7 @@ func TestCustomDecoder_StrictAndPermissive(t *testing.T) {
 			Point testCustomPoint `default:"invalid"`
 		}
 		binder := New()
-		_ = RegisterDecoder(binder, parsePoint)
+		_ = RegisterMarshaler(binder, parsePoint)
 		var cfg badConfig
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error on invalid default, got nil")
