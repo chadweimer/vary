@@ -368,7 +368,7 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 func (b *Binder) set(val reflect.Value, str string) error {
 	marshaler := b.getMarshaler(val.Type())
 	if marshaler != nil {
-		return marshaler.Decode(val, str)
+		return marshaler.Marshal(val, str)
 	}
 
 	valType := val.Type()

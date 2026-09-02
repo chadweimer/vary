@@ -8,12 +8,12 @@ import (
 )
 
 type marshaler interface {
-	Decode(val reflect.Value, str string) error
+	Marshal(val reflect.Value, str string) error
 }
 
 type standardMarshaler[T any] func(string) (T, error)
 
-func (d standardMarshaler[T]) Decode(val reflect.Value, str string) error {
+func (d standardMarshaler[T]) Marshal(val reflect.Value, str string) error {
 	result, err := d(str)
 	if err == nil {
 		val.Set(reflect.ValueOf(result))
@@ -24,7 +24,7 @@ func (d standardMarshaler[T]) Decode(val reflect.Value, str string) error {
 
 type mutatingMarshaler[T any] func(string, T) error
 
-func (d mutatingMarshaler[T]) Decode(val reflect.Value, str string) error {
+func (d mutatingMarshaler[T]) Marshal(val reflect.Value, str string) error {
 	return d(str, val.Addr().Interface().(T))
 }
 

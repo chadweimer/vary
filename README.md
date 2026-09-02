@@ -47,13 +47,13 @@ You can register custom marshaler functions for custom types:
 
 ```go
 binder := vary.New()
-// Decoding to a new value
+// Marshaling to a new value
 vary.RegisterMarshaler(binder, func(s string) (CustomType, error) {
     return parseCustomType(s)
 })
 // Mutating the value of any type that implements a custom interface
-vary.RegisterMutatingMarshaler(binder, func(s string, i CustomDecodingInterface) error {
-    return i.CustomDecodeMethod(s)
+vary.RegisterMutatingMarshaler(binder, func(s string, i CustomMarshalingInterface) error {
+    return i.CustomMarshalMethod(s)
 })
 ```
 
