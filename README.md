@@ -41,7 +41,23 @@ binder := vary.New(vary.WithPrefix("MYAPP"))
 binder.Bind(&cfg)
 ```
 
-Refer to the documentation for more information on prefixes, strict mode, and how to control the order of precedence between names.
+### Custom Marshalers
+
+You can register custom marshaler functions for custom types:
+
+```go
+binder := vary.New()
+// Marshaling to a new value
+vary.RegisterMarshaler(binder, func(s string) (CustomType, error) {
+    return parseCustomType(s)
+})
+// Mutating the value of any type that implements a custom interface
+vary.RegisterMutatingMarshaler(binder, func(s string, i CustomMarshalingInterface) error {
+    return i.CustomMarshalMethod(s)
+})
+```
+
+Refer to the documentation for more information on prefixes, custom marshalers, strict mode, and how to control the order of precedence between names.
 
 ## Documentation
 
