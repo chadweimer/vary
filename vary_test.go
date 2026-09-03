@@ -125,7 +125,7 @@ func TestBind_Defaults(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := allSupportedTypes{}
+			var got allSupportedTypes
 			if err := Bind(&got); err != nil {
 				t.Fatal(err)
 			}
@@ -212,13 +212,9 @@ func TestBind_EnvVar(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for key, val := range tt.env {
-				t.Setenv(key, val)
-			}
-			if tt.prefix != "" {
-				SetPrefix(tt.prefix)
-			}
-			got := testStruct{}
+			var got testStruct
+			DefaultBinder = New(WithLookupEnv(mapLookupEnv(tt.env)))
+			SetPrefix(tt.prefix)
 			if err := Bind(&got); err != nil {
 				t.Fatal(err)
 			}
@@ -286,11 +282,9 @@ func TestBind_PrefixHandling(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for key, val := range tt.env {
-				t.Setenv(key, val)
-			}
-			binder := New(WithPrefix(tt.prefix), WithPrefixHandling(tt.prefixHandling))
-			got := testStruct{}
+			var got testStruct
+			binder := NewWithPrefix(tt.prefix, tt.prefixHandling).
+				With(WithLookupEnv(mapLookupEnv(tt.env)))
 			if err := binder.Bind(&got); err != nil {
 				t.Fatal(err)
 			}
@@ -369,11 +363,9 @@ func TestBind_Required(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for key, val := range tt.env {
-				t.Setenv(key, val)
-			}
 			var got testStruct
-			err := Bind(&got)
+			binder := New(WithLookupEnv(mapLookupEnv(tt.env)))
+			err := binder.Bind(&got)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -398,7 +390,7 @@ func TestBind_Strict(t *testing.T) {
 	tests := []struct {
 		name    string
 		env     map[string]string
-		binder  *Binder
+		strict  bool
 		want    testStruct
 		wantErr bool
 	}{
@@ -407,7 +399,7 @@ func TestBind_Strict(t *testing.T) {
 			env: map[string]string{
 				"PORT": "not-a-port",
 			},
-			binder:  New(),
+			strict:  false,
 			want:    testStruct{Port: 8080},
 			wantErr: false,
 		},
@@ -416,7 +408,7 @@ func TestBind_Strict(t *testing.T) {
 			env: map[string]string{
 				"PORT": "9000",
 			},
-			binder:  New(),
+			strict:  false,
 			want:    testStruct{Port: 9000},
 			wantErr: false,
 		},
@@ -425,7 +417,7 @@ func TestBind_Strict(t *testing.T) {
 			env: map[string]string{
 				"PORT": "not-a-port",
 			},
-			binder:  New(WithStrict(true)),
+			strict:  true,
 			wantErr: true,
 		},
 		{
@@ -433,10 +425,7 @@ func TestBind_Strict(t *testing.T) {
 			env: map[string]string{
 				"PORT": "not-a-port",
 			},
-			binder: func() *Binder {
-				b := New(WithStrict(true))
-				return b
-			}(),
+			strict:  true,
 			wantErr: true,
 		},
 		{
@@ -444,7 +433,7 @@ func TestBind_Strict(t *testing.T) {
 			env: map[string]string{
 				"PORT": "9000",
 			},
-			binder:  New(WithStrict(true)),
+			strict:  true,
 			want:    testStruct{Port: 9000},
 			wantErr: false,
 		},
@@ -452,11 +441,9 @@ func TestBind_Strict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for key, val := range tt.env {
-				t.Setenv(key, val)
-			}
 			var got testStruct
-			err := tt.binder.Bind(&got)
+			binder := New(WithStrict(tt.strict), WithLookupEnv(mapLookupEnv(tt.env)))
+			err := binder.Bind(&got)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
 			}
