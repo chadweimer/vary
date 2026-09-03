@@ -133,6 +133,10 @@ func WithPrefix(prefix string) Option {
 }
 
 // WithPrefixHandling sets the prefix handling for the Binder.
+//
+// If an invalid value is provided, this method will succeed without error.
+// When strict mode is disabled, the default PrefixHandlingPrimary will be used by Bind, and a warning will be logged via slog.Warn.
+// When strict mode is enabled, an error will be returned by Bind.
 func WithPrefixHandling(prefixHandling PrefixHandling) Option {
 	return func(b *Binder) {
 		b.prefixHandling = prefixHandling
@@ -364,20 +368,32 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 	primaryEnvName := envName
 	secondaryEnvName := ""
 	if b.prefix != "" {
-		prefixedEnvName := b.prefix + "_" + envName
+		prefixHandling := b.prefixHandling
 		switch b.prefixHandling {
 		case PrefixHandlingAlways:
+		case PrefixHandlingPrimary:
+		case PrefixHandlingSecondary:
+		default:
+			if b.strict {
+				return false, fmt.Errorf("unknown prefix handling type: %q", b.prefixHandling)
+			}
+			slog.Warn("Unknown prefix handling type. Proceeding with default behavior",
+				"prefixHandling", b.prefixHandling,
+				"envName", envName)
+			prefixHandling = PrefixHandlingPrimary
+		}
+
+		prefixedEnvName := b.prefix + "_" + envName
+		switch prefixHandling {
+		case PrefixHandlingAlways:
 			primaryEnvName = prefixedEnvName
+			secondaryEnvName = ""
 		case PrefixHandlingPrimary:
 			primaryEnvName = prefixedEnvName
 			secondaryEnvName = envName
 		case PrefixHandlingSecondary:
 			primaryEnvName = envName
 			secondaryEnvName = prefixedEnvName
-		default:
-			slog.Warn("Unknown prefix handling type. Proceeding with default behavior",
-				"prefixHandling", b.prefixHandling,
-				"envName", envName)
 		}
 	}
 
