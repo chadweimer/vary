@@ -42,7 +42,7 @@ func RegisterMarshaler[T any](b *Binder, marshaler func(string) (T, error)) erro
 
 	targetType := reflect.TypeFor[T]()
 	if targetType.Kind() != reflect.Pointer && targetType.Kind() != reflect.Interface {
-		b.marshalers[targetType] = standardMarshaler[T](marshaler)
+		b.registerMarshaler(targetType, standardMarshaler[T](marshaler))
 		return nil
 	}
 
@@ -51,6 +51,9 @@ func RegisterMarshaler[T any](b *Binder, marshaler func(string) (T, error)) erro
 
 // RegisterMutatingMarshaler registers a custom marshaler function for an interface of type T, where T must be an interface type.
 // The marshaler function must use the supplied object of type T to unmarshal and mutate in-place.
+//
+// During the binding processes, the marshalers are evaluated in the order they were registered.
+// The first registered interface that matches the type of the field being bound will be used.
 //
 // Returns an error if an argument is nil or the supplied function does not match a supported signature.
 func RegisterMutatingMarshaler[T any](b *Binder, marshaler func(string, T) error) error {
@@ -63,11 +66,16 @@ func RegisterMutatingMarshaler[T any](b *Binder, marshaler func(string, T) error
 
 	targetType := reflect.TypeFor[T]()
 	if targetType.Kind() == reflect.Interface {
-		b.marshalers[targetType] = mutatingMarshaler[T](marshaler)
+		b.registerMarshaler(targetType, mutatingMarshaler[T](marshaler))
 		return nil
 	}
 
 	return errors.New("marshaler must be a function with signature func(string, T) error, where T is an interface")
+}
+
+func (b *Binder) registerMarshaler(targetType reflect.Type, marshaler marshaler) {
+	b.marshalers[targetType] = marshaler
+	b.orderedMarshalers = append(b.orderedMarshalers, targetType)
 }
 
 func (b *Binder) initDefaultMarshalers() {
@@ -87,7 +95,9 @@ func (b *Binder) getMarshaler(t reflect.Type) marshaler {
 	}
 
 	// 2. Interface match
-	for targetType, marshaler := range b.marshalers {
+	// It's important to check these in the order of registration, as the first registered interface that matches will be used.
+	for _, targetType := range b.orderedMarshalers {
+		marshaler := b.marshalers[targetType]
 		if targetType.Kind() == reflect.Interface && reflect.PointerTo(t).Implements(targetType) {
 			return marshaler
 		}

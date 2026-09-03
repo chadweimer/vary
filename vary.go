@@ -46,6 +46,7 @@ import (
 	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -113,11 +114,12 @@ func mapLookupEnv(m map[string]string) LookupEnvFunc {
 
 // Binder is responsible for binding environment variables to struct fields based on struct tags.
 type Binder struct {
-	prefix         string
-	prefixHandling PrefixHandling
-	strict         bool
-	lookupEnv      LookupEnvFunc
-	marshalers     map[reflect.Type]marshaler
+	prefix            string
+	prefixHandling    PrefixHandling
+	strict            bool
+	lookupEnv         LookupEnvFunc
+	marshalers        map[reflect.Type]marshaler
+	orderedMarshalers []reflect.Type
 }
 
 // Option is a function that configures a Binder.
@@ -170,11 +172,12 @@ var DefaultBinder = New()
 // and applies any provided options.
 func New(opts ...Option) *Binder {
 	b := &Binder{
-		prefix:         "",
-		prefixHandling: PrefixHandlingPrimary,
-		strict:         false,
-		lookupEnv:      os.LookupEnv,
-		marshalers:     make(map[reflect.Type]marshaler),
+		prefix:            "",
+		prefixHandling:    PrefixHandlingPrimary,
+		strict:            false,
+		lookupEnv:         os.LookupEnv,
+		marshalers:        make(map[reflect.Type]marshaler),
+		orderedMarshalers: make([]reflect.Type, 0),
 	}
 
 	b.initDefaultMarshalers()
@@ -189,11 +192,12 @@ func New(opts ...Option) *Binder {
 // With returns a new Binder that inherits the settings of the current binder and applies any provided options.
 func (b *Binder) With(opts ...Option) *Binder {
 	newBinder := &Binder{
-		prefix:         b.prefix,
-		prefixHandling: b.prefixHandling,
-		strict:         b.strict,
-		lookupEnv:      b.lookupEnv,
-		marshalers:     maps.Clone(b.marshalers),
+		prefix:            b.prefix,
+		prefixHandling:    b.prefixHandling,
+		strict:            b.strict,
+		lookupEnv:         b.lookupEnv,
+		marshalers:        maps.Clone(b.marshalers),
+		orderedMarshalers: slices.Clone(b.orderedMarshalers),
 	}
 
 	for _, opt := range opts {
