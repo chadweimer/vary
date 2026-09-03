@@ -43,8 +43,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -100,12 +102,24 @@ const (
 	PrefixHandlingSecondary PrefixHandling = "Secondary"
 )
 
+// LookupEnvFunc defines a function type for looking up environment variables.
+type LookupEnvFunc func(key string) (string, bool)
+
+func mapLookupEnv(m map[string]string) LookupEnvFunc {
+	return func(key string) (string, bool) {
+		val, ok := m[key]
+		return val, ok
+	}
+}
+
 // Binder is responsible for binding environment variables to struct fields based on struct tags.
 type Binder struct {
-	prefix         string
-	prefixHandling PrefixHandling
-	strict         bool
-	marshalers     map[reflect.Type]marshaler
+	prefix            string
+	prefixHandling    PrefixHandling
+	strict            bool
+	lookupEnv         LookupEnvFunc
+	marshalers        map[reflect.Type]marshaler
+	orderedMarshalers []reflect.Type
 }
 
 // Option is a function that configures a Binder.
@@ -142,6 +156,15 @@ func WithStrict(strict bool) Option {
 	}
 }
 
+// WithLookupEnv sets a custom function for looking up environment variables in the Binder.
+//
+// By default, the Binder uses os.LookupEnv to retrieve environment variable values.
+func WithLookupEnv(lookup LookupEnvFunc) Option {
+	return func(b *Binder) {
+		b.lookupEnv = lookup
+	}
+}
+
 // DefaultBinder is the default binder used for global calls.
 var DefaultBinder = New()
 
@@ -149,10 +172,12 @@ var DefaultBinder = New()
 // and applies any provided options.
 func New(opts ...Option) *Binder {
 	b := &Binder{
-		prefix:         "",
-		prefixHandling: PrefixHandlingPrimary,
-		strict:         false,
-		marshalers:     make(map[reflect.Type]marshaler),
+		prefix:            "",
+		prefixHandling:    PrefixHandlingPrimary,
+		strict:            false,
+		lookupEnv:         os.LookupEnv,
+		marshalers:        make(map[reflect.Type]marshaler),
+		orderedMarshalers: make([]reflect.Type, 0),
 	}
 
 	b.initDefaultMarshalers()
@@ -162,6 +187,24 @@ func New(opts ...Option) *Binder {
 	}
 
 	return b
+}
+
+// With returns a new Binder that inherits the settings of the current binder and applies any provided options.
+func (b *Binder) With(opts ...Option) *Binder {
+	newBinder := &Binder{
+		prefix:            b.prefix,
+		prefixHandling:    b.prefixHandling,
+		strict:            b.strict,
+		lookupEnv:         b.lookupEnv,
+		marshalers:        maps.Clone(b.marshalers),
+		orderedMarshalers: slices.Clone(b.orderedMarshalers),
+	}
+
+	for _, opt := range opts {
+		opt(newBinder)
+	}
+
+	return newBinder
 }
 
 // NewWithPrefix creates a new Binder with the specified prefix and prefix handling.
@@ -339,9 +382,9 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 	}
 
 	resolvedEnvName := primaryEnvName
-	envStr, ok := os.LookupEnv(primaryEnvName)
+	envStr, ok := b.lookupEnv(primaryEnvName)
 	if !ok && secondaryEnvName != "" {
-		envStr, ok = os.LookupEnv(secondaryEnvName)
+		envStr, ok = b.lookupEnv(secondaryEnvName)
 		if ok {
 			resolvedEnvName = secondaryEnvName
 		}

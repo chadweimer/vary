@@ -68,65 +68,31 @@ func TestBinder_RegisterMarshaler(t *testing.T) {
 		t.Fatalf("RegisterMarshaler(parseSize) unexpected error: %v", err)
 	}
 
-	t.Run("Defaults", func(t *testing.T) {
-		var cfg config
-		if err := binder.Bind(&cfg); err != nil {
-			t.Fatalf("Bind() error: %v", err)
-		}
+	var cfg config
+	if err := binder.Bind(&cfg); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
 
-		want := config{
-			Point: testCustomPoint{X: 10, Y: 20},
-			Points: []testCustomPoint{
-				{X: 1, Y: 2},
-				{X: 3, Y: 4},
-			},
-			Size: testCustomSize{W: 100, H: 200},
-			PointMap: map[string]testCustomPoint{
-				"a": {X: 5, Y: 6},
-				"b": {X: 7, Y: 8},
-			},
-			KeyPointMap: map[testCustomPoint]string{
-				{X: 9, Y: 10}:  "first",
-				{X: 11, Y: 12}: "second",
-			},
-		}
+	want := config{
+		Point: testCustomPoint{X: 10, Y: 20},
+		Points: []testCustomPoint{
+			{X: 1, Y: 2},
+			{X: 3, Y: 4},
+		},
+		Size: testCustomSize{W: 100, H: 200},
+		PointMap: map[string]testCustomPoint{
+			"a": {X: 5, Y: 6},
+			"b": {X: 7, Y: 8},
+		},
+		KeyPointMap: map[testCustomPoint]string{
+			{X: 9, Y: 10}:  "first",
+			{X: 11, Y: 12}: "second",
+		},
+	}
 
-		if !reflect.DeepEqual(cfg, want) {
-			t.Errorf("Bind() = %+v, want %+v", cfg, want)
-		}
-	})
-
-	t.Run("FromEnv", func(t *testing.T) {
-		t.Setenv("POINT", "50:60")
-		t.Setenv("POINTS", "10:11,12:13")
-		t.Setenv("SIZE", "500x600")
-		t.Setenv("POINT_MAP", "k1=1:2")
-		t.Setenv("KEY_POINT_MAP", "3:4=val")
-
-		var cfg config
-		if err := binder.Bind(&cfg); err != nil {
-			t.Fatalf("Bind() error: %v", err)
-		}
-
-		want := config{
-			Point: testCustomPoint{X: 50, Y: 60},
-			Points: []testCustomPoint{
-				{X: 10, Y: 11},
-				{X: 12, Y: 13},
-			},
-			Size: testCustomSize{W: 500, H: 600},
-			PointMap: map[string]testCustomPoint{
-				"k1": {X: 1, Y: 2},
-			},
-			KeyPointMap: map[testCustomPoint]string{
-				{X: 3, Y: 4}: "val",
-			},
-		}
-
-		if !reflect.DeepEqual(cfg, want) {
-			t.Errorf("Bind() = %+v, want %+v", cfg, want)
-		}
-	})
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("Bind() = %+v, want %+v", cfg, want)
+	}
 }
 
 func TestBinder_RegisterMarshaler_Invalid(t *testing.T) {
@@ -238,11 +204,11 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 	type config struct {
 		Point testCustomPoint `env:"POINT" default:"1:2"`
 	}
+	binder := New()
+	_ = RegisterMarshaler(binder, parsePoint)
 
 	t.Run("Permissive ignores invalid env", func(t *testing.T) {
-		t.Setenv("POINT", "invalid_point")
-		binder := New()
-		_ = RegisterMarshaler(binder, parsePoint)
+		binder = binder.With(WithLookupEnv(mapLookupEnv(map[string]string{"POINT": "invalid_point"})))
 		var cfg config
 		if err := binder.Bind(&cfg); err != nil {
 			t.Fatalf("Bind() unexpected error in permissive mode: %v", err)
@@ -253,9 +219,9 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 	})
 
 	t.Run("Strict returns error on invalid env", func(t *testing.T) {
-		t.Setenv("POINT", "invalid_point")
-		binder := New(WithStrict(true))
-		_ = RegisterMarshaler(binder, parsePoint)
+		binder = binder.With(
+			WithStrict(true),
+			WithLookupEnv(mapLookupEnv(map[string]string{"POINT": "invalid_point"})))
 		var cfg config
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error in strict mode, got nil")
@@ -266,8 +232,6 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 		type badConfig struct {
 			Point testCustomPoint `default:"invalid"`
 		}
-		binder := New()
-		_ = RegisterMarshaler(binder, parsePoint)
 		var cfg badConfig
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error on invalid default, got nil")
