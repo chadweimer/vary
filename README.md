@@ -32,13 +32,38 @@ if err := vary.Bind(&cfg); err != nil {
 }
 ```
 
+You can also create specific instances of a `Binder` rather than using the package global `DefaultBinder`:
+
+```go
+myBinder := vary.New() // Customize the instance as needed via passing options to New...
+if err := myBinder.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
+```
+
+Or even create a new customized instance starting from the same settings as an existing one:
+
+```go
+myOtherBinder := myBinder.With(vary.WithStrict(true))
+if err := myOtherBinder.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Environment Variable Name Prefixes
+
 If you want to use an application specific environment variable prefix in order to avoid collisions, you can configure the prefix before binding:
 
 ```go
-binder := vary.New(vary.WithPrefix("MYAPP"))
+myBinder := vary.New(vary.WithPrefix("MYAPP"))
+// If you wanted to apply this to the DefaultBinder
+// vary.DefaultBinder = vary.DefaultBinder.With(vary.WithPrefix("MYAPP"))
+
 // This will look for MYAPP_PORT, MYAPP_DEBUG, MYAPP_TIMEOUT, etc.,
 // falling back to the base name only when the one with the prefix is not set.
-binder.Bind(&cfg)
+if err := myBinder.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
 ```
 
 ### Custom Marshalers
@@ -46,15 +71,28 @@ binder.Bind(&cfg)
 You can register custom marshaler functions for custom types:
 
 ```go
-binder := vary.New()
-// Marshaling to a new value
-vary.RegisterMarshaler(binder, func(s string) (CustomType, error) {
+// Marshaling to a new value.
+// This shows how to do this using the DefaultBinder.
+if err := vary.RegisterMarshaler(vary.DefaultBinder, func(s string) (CustomType, error) {
     return parseCustomType(s)
-})
-// Mutating the value of any type that implements a custom interface
-vary.RegisterMutatingMarshaler(binder, func(s string, i CustomMarshalingInterface) error {
+}); err != nil {
+    log.Fatal(err)
+}
+if err := vary.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
+
+// Mutating the value of any type that implements a custom interface.
+// This shows using a specific Binder instance
+myBinder := vary.New()
+if err := vary.RegisterMutatingMarshaler(myBinder, func(s string, i CustomMarshalingInterface) error {
     return i.CustomMarshalMethod(s)
-})
+}); err != nil {
+    log.Fatal(err)
+}
+if err := myBinder.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
 ```
 
 Refer to the documentation for more information on prefixes, custom marshalers, strict mode, and how to control the order of precedence between names.
