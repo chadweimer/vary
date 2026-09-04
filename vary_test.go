@@ -235,7 +235,9 @@ func TestBind_PrefixHandling(t *testing.T) {
 		env            map[string]string
 		prefix         string
 		prefixHandling PrefixHandling
+		strict         bool
 		want           testStruct
+		errChecker     func(error) bool
 	}{
 		{
 			name: "Always",
@@ -246,9 +248,13 @@ func TestBind_PrefixHandling(t *testing.T) {
 			},
 			prefix:         "APP",
 			prefixHandling: PrefixHandlingAlways,
+			strict:         false,
 			want: testStruct{
 				SomeVar:    3, // Prefixed value is used
 				AnotherVar: 1, // Not set, should use default
+			},
+			errChecker: func(err error) bool {
+				return err == nil
 			},
 		},
 		{
@@ -260,9 +266,13 @@ func TestBind_PrefixHandling(t *testing.T) {
 			},
 			prefix:         "APP",
 			prefixHandling: PrefixHandlingPrimary,
+			strict:         false,
 			want: testStruct{
 				SomeVar:    3, // Prefixed value is used
 				AnotherVar: 4, // Not set with prefix, should use unprefixed value
+			},
+			errChecker: func(err error) bool {
+				return err == nil
 			},
 		},
 		{
@@ -274,9 +284,45 @@ func TestBind_PrefixHandling(t *testing.T) {
 			},
 			prefix:         "APP",
 			prefixHandling: PrefixHandlingSecondary,
+			strict:         false,
 			want: testStruct{
 				SomeVar:    2, // Prefixed value is ignored, should use unprefixed value
 				AnotherVar: 4, // Not set with prefix, should use unprefixed value
+			},
+			errChecker: func(err error) bool {
+				return err == nil
+			},
+		},
+		{
+			name: "Invalid with permissive mode",
+			env: map[string]string{
+				"SOME_VAR":     "2",
+				"APP_SOME_VAR": "3",
+				"ANOTHER_VAR":  "4",
+			},
+			prefix:         "APP",
+			prefixHandling: PrefixHandling("Invalid"),
+			strict:         false,
+			want: testStruct{
+				SomeVar:    3, // Prefixed value is used
+				AnotherVar: 4, // Not set with prefix, should use unprefixed value
+			},
+			errChecker: func(err error) bool {
+				return err == nil
+			},
+		},
+		{
+			name: "Invalid with strict mode",
+			env: map[string]string{
+				"SOME_VAR":     "2",
+				"APP_SOME_VAR": "3",
+				"ANOTHER_VAR":  "4",
+			},
+			prefix:         "APP",
+			prefixHandling: PrefixHandling("Invalid"),
+			strict:         true,
+			errChecker: func(err error) bool {
+				return err != nil
 			},
 		},
 	}
@@ -284,11 +330,12 @@ func TestBind_PrefixHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
 			binder := NewWithPrefix(tt.prefix, tt.prefixHandling).
-				With(WithLookupEnv(mapLookupEnv(tt.env)))
-			if err := binder.Bind(&got); err != nil {
-				t.Fatal(err)
+				With(WithStrict(tt.strict), WithLookupEnv(mapLookupEnv(tt.env)))
+			err := binder.Bind(&got)
+			if !tt.errChecker(err) {
+				t.Fatalf("Bind() error = %v, failed errChecker", err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+			if err == nil && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Bind() = %v, want %v", got, tt.want)
 			}
 		})

@@ -133,6 +133,10 @@ func WithPrefix(prefix string) Option {
 }
 
 // WithPrefixHandling sets the prefix handling for the Binder.
+//
+// If an invalid value is provided, this method will succeed without error.
+// When strict mode is disabled, the default PrefixHandlingPrimary will be used by Bind, and a warning will be logged via slog.Warn.
+// When strict mode is enabled, an error will be returned by Bind.
 func WithPrefixHandling(prefixHandling PrefixHandling) Option {
 	return func(b *Binder) {
 		b.prefixHandling = prefixHandling
@@ -361,24 +365,9 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 		envName = strings.ToUpper(field.Name)
 	}
 
-	primaryEnvName := envName
-	secondaryEnvName := ""
-	if b.prefix != "" {
-		prefixedEnvName := b.prefix + "_" + envName
-		switch b.prefixHandling {
-		case PrefixHandlingAlways:
-			primaryEnvName = prefixedEnvName
-		case PrefixHandlingPrimary:
-			primaryEnvName = prefixedEnvName
-			secondaryEnvName = envName
-		case PrefixHandlingSecondary:
-			primaryEnvName = envName
-			secondaryEnvName = prefixedEnvName
-		default:
-			slog.Warn("Unknown prefix handling type. Proceeding with default behavior",
-				"prefixHandling", b.prefixHandling,
-				"envName", envName)
-		}
+	primaryEnvName, secondaryEnvName, err := b.getEnvNames(envName)
+	if err != nil {
+		return false, err
 	}
 
 	resolvedEnvName := primaryEnvName
@@ -389,23 +378,58 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 			resolvedEnvName = secondaryEnvName
 		}
 	}
-
-	if ok {
-		if err := b.set(val, envStr); err != nil {
-			if b.strict {
-				return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", resolvedEnvName, envStr, field.Name, err)
-			}
-			slog.Warn("Failed to convert environment variable. Proceeding with existing value",
-				"type", val.Type(),
-				"envName", resolvedEnvName,
-				"envVal", envStr,
-				"error", err)
-			return false, nil
-		}
-		return true, nil
+	if !ok {
+		return false, nil
 	}
 
-	return false, nil
+	if err := b.set(val, envStr); err != nil {
+		if b.strict {
+			return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", resolvedEnvName, envStr, field.Name, err)
+		}
+		slog.Warn("Failed to convert environment variable. Proceeding with existing value",
+			"type", val.Type(),
+			"envName", resolvedEnvName,
+			"envVal", envStr,
+			"error", err)
+		return false, nil
+	}
+	return true, nil
+}
+
+func (b *Binder) getEnvNames(envName string) (primaryEnvName string, secondaryEnvName string, err error) {
+	primaryEnvName = envName
+	secondaryEnvName = ""
+	if b.prefix != "" {
+		prefixHandling := b.prefixHandling
+		switch b.prefixHandling {
+		case PrefixHandlingAlways:
+		case PrefixHandlingPrimary:
+		case PrefixHandlingSecondary:
+		default:
+			if b.strict {
+				return "", "", fmt.Errorf("unknown prefix handling type: %q", b.prefixHandling)
+			}
+			slog.Warn("Unknown prefix handling type. Proceeding with default behavior",
+				"prefixHandling", b.prefixHandling,
+				"envName", envName)
+			prefixHandling = PrefixHandlingPrimary
+		}
+
+		prefixedEnvName := b.prefix + "_" + envName
+		switch prefixHandling {
+		case PrefixHandlingAlways:
+			primaryEnvName = prefixedEnvName
+			secondaryEnvName = ""
+		case PrefixHandlingPrimary:
+			primaryEnvName = prefixedEnvName
+			secondaryEnvName = envName
+		case PrefixHandlingSecondary:
+			primaryEnvName = envName
+			secondaryEnvName = prefixedEnvName
+		}
+	}
+
+	return primaryEnvName, secondaryEnvName, nil
 }
 
 func (b *Binder) set(val reflect.Value, str string) error {
