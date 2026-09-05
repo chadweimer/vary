@@ -354,16 +354,14 @@ func TestBind_Required(t *testing.T) {
 		name       string
 		env        map[string]string
 		want       testStruct
-		wantErr    bool
-		errChecker func(error) bool
+		errChecker func(error) (error, bool)
 	}{
 		{
-			name:    "Missing all required fields",
-			env:     map[string]string{},
-			wantErr: true,
-			errChecker: func(err error) bool {
-				var reqErr *ErrRequiredField
-				return errors.As(err, &reqErr)
+			name: "Missing all required fields",
+			env:  map[string]string{},
+			errChecker: func(got error) (error, bool) {
+				want := &ErrRequiredField{}
+				return want, errors.As(got, new(want))
 			},
 		},
 		{
@@ -371,10 +369,9 @@ func TestBind_Required(t *testing.T) {
 			env: map[string]string{
 				"REQ_FIELD": "hello",
 			},
-			wantErr: true,
-			errChecker: func(err error) bool {
-				var reqErr *ErrRequiredField
-				return errors.As(err, &reqErr)
+			errChecker: func(got error) (error, bool) {
+				want := &ErrRequiredField{}
+				return want, errors.As(got, new(want))
 			},
 		},
 		{
@@ -388,7 +385,6 @@ func TestBind_Required(t *testing.T) {
 				RequiredNum:     42,
 				RequiredWithDef: "fallback",
 			},
-			wantErr: false,
 		},
 		{
 			name: "All fields provided",
@@ -404,7 +400,6 @@ func TestBind_Required(t *testing.T) {
 				RequiredWithDef: "custom",
 				OptionalField:   "optional",
 			},
-			wantErr: false,
 		},
 	}
 
@@ -412,17 +407,13 @@ func TestBind_Required(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
 			binder := New(WithLookupEnv(mapLookupEnv(tt.env)))
-			err := binder.Bind(&got)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				if tt.errChecker != nil && !tt.errChecker(err) {
-					t.Errorf("Bind() error = %v, failed errChecker", err)
+			if err := binder.Bind(&got); err != nil {
+				if tt.errChecker != nil {
+					if want, ok := tt.errChecker(err); !ok {
+						t.Errorf("Bind() = %v, want = %v", err, want)
+					}
 				}
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
+			} else if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Bind() = %v, want %v", got, tt.want)
 			}
 		})
