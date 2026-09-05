@@ -91,7 +91,7 @@ func WithLookup(lookup LookupEnvFunc) Option {
 // DefaultBinder is the default binder used for global calls.
 var DefaultBinder = New()
 
-// New creates a new Binder with default settings (no initial prefix, primary prefix handling, strict mode disabled),
+// New creates a new Binder with default settings (strict mode disabled, os.LookupEnv),
 // and applies any provided options.
 func New(opts ...Option) *Binder {
 	b := &Binder{
@@ -143,7 +143,7 @@ func Bind(ptr any) error {
 //   - time.Duration (parsed using time.ParseDuration)
 //   - Maps of any supported key and value types (comma-separated key=value or key:value pairs)
 //   - Slices and Arrays of any supported type (values are comma-separated in the environment variable)
-//   - Nested structs (recursively bound with optional prefix handling)
+//   - Nested structs (recursively bound)
 //   - Types implementing encoding.TextUnmarshaler
 //   - Types implementing encoding.BinaryUnmarshaler
 //   - Types with registered custom marshalers
