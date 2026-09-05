@@ -66,6 +66,37 @@ if err := myBinder.Bind(&cfg); err != nil {
 }
 ```
 
+### Environment Variable Lookup
+
+This library defaults to loading environment variables from the process's environment via `os.LookupEnv()`.
+This behavior can be overridden via the `WithLookupEnv` method:
+
+```go
+func myCustomLookupEnvFunc(key string) (string, bool) {
+  // Do custom lookup logic
+}
+
+myBinder := vary.New(vary.WithLookupEnv(myCustomLookupEnvFunc))
+```
+
+A common scenario is to use an in-memory map, which can be useful for utilizing a dotenv (`.env`) file:
+
+```go
+// Use your favorite library to load the contents of the .env file
+// Assumes this returns map[string]string. Real examples likely require handling errors.
+dotenvMap := myFavoriteDotenvLib.Load(".env")
+myBinder := vary.New(vary.WithLookupEnv(vary.MapLookupEnv(dotenvMap)))
+```
+
+You can also combine multiple sources together:
+
+```go
+// The lookups are evaluated in the order provided to CompositeLookupEnv,
+// and the first successfully found value is used.
+myBinder := vary.New(vary.WithLookupEnv(
+  vary.CompositeLookupEnv(os.LookupEnv, vary.MapLookupEnv(dotenvMap))))
+```
+
 ### Custom Marshalers
 
 You can register custom marshaler functions for custom types:

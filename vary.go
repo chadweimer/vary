@@ -75,10 +75,25 @@ const (
 // LookupEnvFunc defines a function type for looking up environment variables.
 type LookupEnvFunc func(key string) (string, bool)
 
-func mapLookupEnv(m map[string]string) LookupEnvFunc {
+// MapLookupEnv returns a LookupEnvFunc that looks up environment variables from the provided map.
+func MapLookupEnv(m map[string]string) LookupEnvFunc {
 	return func(key string) (string, bool) {
 		val, ok := m[key]
 		return val, ok
+	}
+}
+
+// CompositeLookupEnv combines multiple LookupEnvFunc functions into a single LookupEnvFunc.
+// It queries each provided function in order and returns the first successful result.
+// If none of the functions return a value, it returns an empty string and false.
+func CompositeLookupEnv(lookups ...LookupEnvFunc) LookupEnvFunc {
+	return func(key string) (string, bool) {
+		for _, lookup := range lookups {
+			if val, ok := lookup(key); ok {
+				return val, ok
+			}
+		}
+		return "", false
 	}
 }
 
