@@ -51,36 +51,6 @@ import (
 	"strings"
 )
 
-// --- Error types ---
-
-var (
-	// ErrPointerRequired is returned when a non-pointer type is passed to Bind.
-	ErrPointerRequired = errors.New("bind requires pointer types")
-
-	// ErrStructRequired is returned when a non-struct type is passed to Bind.
-	ErrStructRequired = errors.New("bind requires struct types")
-)
-
-// ErrRequiredField is returned when a required configuration field has no value set.
-type ErrRequiredField struct {
-	FieldName string
-}
-
-func (e *ErrRequiredField) Error() string {
-	return fmt.Sprintf("required configuration field %s is not set", e.FieldName)
-}
-
-// ErrUnsupportedType is returned when a field type is not supported for binding.
-type ErrUnsupportedType struct {
-	fieldType reflect.Type
-}
-
-func (e *ErrUnsupportedType) Error() string {
-	return fmt.Sprintf("unsupported field type: %s", e.fieldType)
-}
-
-// --- Bind ---
-
 // PrefixHandling defines how the binder should handle prefixes when binding environment variables to struct fields.
 type PrefixHandling string
 
@@ -276,25 +246,20 @@ func Bind(ptr any) error {
 //   - ErrRequiredField if a required field is not set
 //   - Other errors from type conversions or unmarshaling
 func (b *Binder) Bind(ptr any) error {
-	val := reflect.ValueOf(ptr)
-	if val.Kind() != reflect.Pointer {
+	if val := reflect.ValueOf(ptr); val.Kind() != reflect.Pointer {
 		return ErrPointerRequired
+	} else if val = val.Elem(); val.Kind() == reflect.Struct {
+		return b.bindStruct(val)
 	}
 
-	val = val.Elem()
-	if val.Kind() != reflect.Struct {
-		return ErrStructRequired
-	}
-
-	return b.bindStruct(val)
+	return ErrStructRequired
 }
 
 func (b *Binder) bindStruct(objVal reflect.Value) error {
 	var errs []error
 
 	for i := 0; i < objVal.NumField(); i++ {
-		field := objVal.Type().Field(i)
-		if field.IsExported() {
+		if field := objVal.Type().Field(i); field.IsExported() {
 			errs = append(errs, b.bindField(field, objVal.Field(i))...)
 		}
 	}
@@ -311,19 +276,15 @@ func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value) []
 		if err := b.bindStruct(fieldVal); err != nil {
 			errs = append(errs, err)
 		}
+	} else if hasDefault, err := b.setToDefault(field, fieldVal); err != nil {
+		errs = append(errs, err)
 	} else {
-		hasDefault, err := b.setToDefault(field, fieldVal)
-		if err != nil {
+		if envSet, err := b.setFromEnv(field, fieldVal); err != nil {
 			errs = append(errs, err)
-		} else {
-			envSet, err := b.setFromEnv(field, fieldVal)
-			if err != nil {
-				errs = append(errs, err)
-			} else if isRequired(field) && !hasDefault && !envSet {
-				errs = append(errs, &ErrRequiredField{
-					FieldName: field.Name,
-				})
-			}
+		} else if isRequired(field) && !hasDefault && !envSet {
+			errs = append(errs, &ErrRequiredField{
+				FieldName: field.Name,
+			})
 		}
 	}
 	return errs
@@ -331,10 +292,7 @@ func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value) []
 
 func isRequired(field reflect.StructField) bool {
 	reqStr, ok := field.Tag.Lookup("required")
-	if !ok {
-		return false
-	}
-	return reqStr == "" || strings.EqualFold(reqStr, "true") || reqStr == "1"
+	return ok && (reqStr == "" || strings.EqualFold(reqStr, "true") || reqStr == "1")
 }
 
 func resolvePointers(val reflect.Value) reflect.Value {
@@ -373,8 +331,7 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 	resolvedEnvName := primaryEnvName
 	envStr, ok := b.lookupEnv(primaryEnvName)
 	if !ok && secondaryEnvName != "" {
-		envStr, ok = b.lookupEnv(secondaryEnvName)
-		if ok {
+		if envStr, ok = b.lookupEnv(secondaryEnvName); ok {
 			resolvedEnvName = secondaryEnvName
 		}
 	}
@@ -397,14 +354,11 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 }
 
 func (b *Binder) getEnvNames(envName string) (primaryEnvName string, secondaryEnvName string, err error) {
-	primaryEnvName = envName
-	secondaryEnvName = ""
+	primaryEnvName, secondaryEnvName = envName, ""
 	if b.prefix != "" {
 		prefixHandling := b.prefixHandling
 		switch b.prefixHandling {
-		case PrefixHandlingAlways:
-		case PrefixHandlingPrimary:
-		case PrefixHandlingSecondary:
+		case PrefixHandlingAlways, PrefixHandlingPrimary, PrefixHandlingSecondary:
 		default:
 			if b.strict {
 				return "", "", fmt.Errorf("unknown prefix handling type: %q", b.prefixHandling)
@@ -433,8 +387,7 @@ func (b *Binder) getEnvNames(envName string) (primaryEnvName string, secondaryEn
 }
 
 func (b *Binder) set(val reflect.Value, str string) error {
-	marshaler := b.getMarshaler(val.Type())
-	if marshaler != nil {
+	if marshaler := b.getMarshaler(val.Type()); marshaler != nil {
 		return marshaler.Marshal(val, str)
 	}
 
@@ -481,18 +434,19 @@ func (b *Binder) set(val reflect.Value, str string) error {
 func (b *Binder) convertSlice(str string, val reflect.Value) error {
 	return convertAndSet(str, func(str string) (reflect.Value, error) {
 		valType := val.Type()
-		newVal := reflect.MakeSlice(valType, 0, 0)
-		if str != "" {
-			segments := strings.Split(str, ",")
-			newVal = reflect.MakeSlice(valType, 0, len(segments))
-			for _, segment := range segments {
-				elementPtr := reflect.New(valType.Elem())
-				element := resolvePointers(elementPtr)
-				if err := b.set(element, strings.TrimSpace(segment)); err != nil {
-					return reflect.Zero(valType), err
-				}
-				newVal = reflect.Append(newVal, elementPtr.Elem())
+		if str == "" {
+			return reflect.MakeSlice(valType, 0, 0), nil
+		}
+
+		segments := strings.Split(str, ",")
+		newVal := reflect.MakeSlice(valType, 0, len(segments))
+		for _, segment := range segments {
+			elementPtr := reflect.New(valType.Elem())
+			element := resolvePointers(elementPtr)
+			if err := b.set(element, strings.TrimSpace(segment)); err != nil {
+				return reflect.Zero(valType), err
 			}
+			newVal = reflect.Append(newVal, elementPtr.Elem())
 		}
 		return newVal, nil
 	}, val.Set)
@@ -501,21 +455,17 @@ func (b *Binder) convertSlice(str string, val reflect.Value) error {
 func (b *Binder) convertMap(str string, val reflect.Value) error {
 	return convertAndSet(str, func(str string) (reflect.Value, error) {
 		valType := val.Type()
-		keyType := valType.Key()
-		elemType := valType.Elem()
+		if str == "" {
+			return reflect.MakeMap(valType), nil
+		}
 
-		newMap := reflect.MakeMap(valType)
-		if str != "" {
-			pairs := strings.Split(str, ",")
-			newMap = reflect.MakeMapWithSize(valType, len(pairs))
-			for _, pair := range pairs {
-				pair = strings.TrimSpace(pair)
-				if pair != "" {
-					key, elem, err := b.getMapElement(pair, keyType, elemType)
-					if err != nil {
-						return reflect.Zero(valType), err
-					}
-
+		pairs := strings.Split(str, ",")
+		newMap := reflect.MakeMapWithSize(valType, len(pairs))
+		for _, pair := range pairs {
+			if pair = strings.TrimSpace(pair); pair != "" {
+				if key, elem, err := b.getMapElement(pair, valType.Key(), valType.Elem()); err != nil {
+					return reflect.Zero(valType), err
+				} else {
 					newMap.SetMapIndex(key, elem)
 				}
 			}
@@ -549,9 +499,8 @@ func (b *Binder) getMapElement(pair string, keyType reflect.Type, elemType refle
 
 func convertAndSet[T any](str string, converter func(str string) (T, error), setter func(val T)) error {
 	typed, err := converter(str)
-	if err != nil {
-		return err
+	if err == nil {
+		setter(typed)
 	}
-	setter(typed)
-	return nil
+	return err
 }
