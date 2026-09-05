@@ -51,56 +51,8 @@ import (
 	"strings"
 )
 
-// PrefixHandling defines how the binder should handle prefixes when binding environment variables to struct fields.
-type PrefixHandling string
-
-const (
-	// PrefixHandlingAlways indicates that the prefix should always be applied to the environment variable names.
-	// For example, if the prefix is "APP" and the field is "PORT", the environment variable will be "APP_PORT".
-	PrefixHandlingAlways PrefixHandling = "Always"
-
-	// PrefixHandlingPrimary indicates that the prefix should be applied to the primary environment variable name,
-	// but the unprefixed name should also be checked as a fallback.
-	// For example, if the prefix is "APP" and the field is "PORT", the binder will first check "APP_PORT",
-	// and if that is not set, it will check "PORT".
-	PrefixHandlingPrimary PrefixHandling = "Primary"
-
-	// PrefixHandlingSecondary indicates that the unprefixed name should be checked first,
-	// and the prefixed name should be used as a fallback.
-	// For example, if the prefix is "APP" and the field is "PORT", the binder will first check "PORT",
-	// and if that is not set, it will check "APP_PORT".
-	PrefixHandlingSecondary PrefixHandling = "Secondary"
-)
-
-// LookupEnvFunc defines a function type for looking up environment variables.
-type LookupEnvFunc func(key string) (string, bool)
-
-// MapLookupEnv returns a LookupEnvFunc that looks up environment variables from the provided map.
-func MapLookupEnv(m map[string]string) LookupEnvFunc {
-	return func(key string) (string, bool) {
-		val, ok := m[key]
-		return val, ok
-	}
-}
-
-// CompositeLookupEnv combines multiple LookupEnvFunc functions into a single LookupEnvFunc.
-// It queries each provided function in order and returns the first successful result.
-// If none of the functions return a value, it returns an empty string and false.
-func CompositeLookupEnv(lookups ...LookupEnvFunc) LookupEnvFunc {
-	return func(key string) (string, bool) {
-		for _, lookup := range lookups {
-			if val, ok := lookup(key); ok {
-				return val, ok
-			}
-		}
-		return "", false
-	}
-}
-
 // Binder is responsible for binding environment variables to struct fields based on struct tags.
 type Binder struct {
-	prefix            string
-	prefixHandling    PrefixHandling
 	strict            bool
 	lookupEnv         LookupEnvFunc
 	marshalers        map[reflect.Type]marshaler
@@ -109,24 +61,6 @@ type Binder struct {
 
 // Option is a function that configures a Binder.
 type Option func(*Binder)
-
-// WithPrefix sets the prefix for the Binder.
-func WithPrefix(prefix string) Option {
-	return func(b *Binder) {
-		b.prefix = prefix
-	}
-}
-
-// WithPrefixHandling sets the prefix handling for the Binder.
-//
-// If an invalid value is provided, this method will succeed without error.
-// When strict mode is disabled, the default PrefixHandlingPrimary will be used by Bind, and a warning will be logged via slog.Warn.
-// When strict mode is enabled, an error will be returned by Bind.
-func WithPrefixHandling(prefixHandling PrefixHandling) Option {
-	return func(b *Binder) {
-		b.prefixHandling = prefixHandling
-	}
-}
 
 // WithStrict sets the strict error handling mode for the Binder.
 //
@@ -145,10 +79,10 @@ func WithStrict(strict bool) Option {
 	}
 }
 
-// WithLookupEnv sets a custom function for looking up environment variables in the Binder.
+// WithLookup sets a custom function for looking up environment variables in the Binder.
 //
 // By default, the Binder uses os.LookupEnv to retrieve environment variable values.
-func WithLookupEnv(lookup LookupEnvFunc) Option {
+func WithLookup(lookup LookupEnvFunc) Option {
 	return func(b *Binder) {
 		b.lookupEnv = lookup
 	}
@@ -157,12 +91,10 @@ func WithLookupEnv(lookup LookupEnvFunc) Option {
 // DefaultBinder is the default binder used for global calls.
 var DefaultBinder = New()
 
-// New creates a new Binder with default settings (no initial prefix, primary prefix handling, strict mode disabled),
+// New creates a new Binder with default settings (strict mode disabled, os.LookupEnv),
 // and applies any provided options.
 func New(opts ...Option) *Binder {
 	b := &Binder{
-		prefix:            "",
-		prefixHandling:    PrefixHandlingPrimary,
 		strict:            false,
 		lookupEnv:         os.LookupEnv,
 		marshalers:        make(map[reflect.Type]marshaler),
@@ -181,8 +113,6 @@ func New(opts ...Option) *Binder {
 // With returns a new Binder that inherits the settings of the current binder and applies any provided options.
 func (b *Binder) With(opts ...Option) *Binder {
 	newBinder := &Binder{
-		prefix:            b.prefix,
-		prefixHandling:    b.prefixHandling,
 		strict:            b.strict,
 		lookupEnv:         b.lookupEnv,
 		marshalers:        maps.Clone(b.marshalers),
@@ -194,27 +124,6 @@ func (b *Binder) With(opts ...Option) *Binder {
 	}
 
 	return newBinder
-}
-
-// NewWithPrefix creates a new Binder with the specified prefix and prefix handling.
-//
-// Deprecated: use New with the WithPrefix and WithPrefixHandling options instead.
-func NewWithPrefix(prefix string, prefixHandling PrefixHandling) *Binder {
-	return New(WithPrefix(prefix), WithPrefixHandling(prefixHandling))
-}
-
-// SetPrefix sets the prefix for the default binder.
-//
-// Deprecated: use New with the WithPrefix option and assign to DefaultBinder instead.
-func SetPrefix(prefix string) {
-	DefaultBinder.SetPrefix(prefix)
-}
-
-// SetPrefix sets the prefix for the binder.
-//
-// Deprecated: configure the binder using the WithPrefix option during creation instead.
-func (b *Binder) SetPrefix(prefix string) {
-	b.prefix = prefix
 }
 
 // Bind initializes the supplied object based on associated struct tags using the default binder.
@@ -234,7 +143,7 @@ func Bind(ptr any) error {
 //   - time.Duration (parsed using time.ParseDuration)
 //   - Maps of any supported key and value types (comma-separated key=value or key:value pairs)
 //   - Slices and Arrays of any supported type (values are comma-separated in the environment variable)
-//   - Nested structs (recursively bound with optional prefix handling)
+//   - Nested structs (recursively bound)
 //   - Types implementing encoding.TextUnmarshaler
 //   - Types implementing encoding.BinaryUnmarshaler
 //   - Types with registered custom marshalers
@@ -249,10 +158,6 @@ func Bind(ptr any) error {
 //   - env: specifies the environment variable name (defaults to uppercase field name if omitted)
 //   - default: specifies a default value to use if the environment variable is not set
 //   - required: specifies that the field must receive a value from an environment variable or default
-//
-// Prefix Handling:
-// The prefix behavior is controlled by the PrefixHandling parameter passed to WithPrefixHandling.
-// See PrefixHandling for more details on how prefixes are applied.
 //
 // Returns:
 //   - ErrPointerRequired if ptr is not a pointer
@@ -338,67 +243,23 @@ func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool,
 		envName = strings.ToUpper(field.Name)
 	}
 
-	primaryEnvName, secondaryEnvName, err := b.getEnvNames(envName)
-	if err != nil {
-		return false, err
-	}
-
-	resolvedEnvName := primaryEnvName
-	envStr, ok := b.lookupEnv(primaryEnvName)
-	if !ok && secondaryEnvName != "" {
-		if envStr, ok = b.lookupEnv(secondaryEnvName); ok {
-			resolvedEnvName = secondaryEnvName
-		}
-	}
+	envStr, ok := b.lookupEnv(envName)
 	if !ok {
 		return false, nil
 	}
 
 	if err := b.set(val, envStr); err != nil {
 		if b.strict {
-			return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", resolvedEnvName, envStr, field.Name, err)
+			return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", envName, envStr, field.Name, err)
 		}
 		slog.Warn("Failed to convert environment variable. Proceeding with existing value",
 			"type", val.Type(),
-			"envName", resolvedEnvName,
+			"envName", envName,
 			"envVal", envStr,
 			"error", err)
 		return false, nil
 	}
 	return true, nil
-}
-
-func (b *Binder) getEnvNames(envName string) (primaryEnvName string, secondaryEnvName string, err error) {
-	primaryEnvName, secondaryEnvName = envName, ""
-	if b.prefix != "" {
-		prefixHandling := b.prefixHandling
-		switch b.prefixHandling {
-		case PrefixHandlingAlways, PrefixHandlingPrimary, PrefixHandlingSecondary:
-		default:
-			if b.strict {
-				return "", "", fmt.Errorf("unknown prefix handling type: %q", b.prefixHandling)
-			}
-			slog.Warn("Unknown prefix handling type. Proceeding with default behavior",
-				"prefixHandling", b.prefixHandling,
-				"envName", envName)
-			prefixHandling = PrefixHandlingPrimary
-		}
-
-		prefixedEnvName := b.prefix + "_" + envName
-		switch prefixHandling {
-		case PrefixHandlingAlways:
-			primaryEnvName = prefixedEnvName
-			secondaryEnvName = ""
-		case PrefixHandlingPrimary:
-			primaryEnvName = prefixedEnvName
-			secondaryEnvName = envName
-		case PrefixHandlingSecondary:
-			primaryEnvName = envName
-			secondaryEnvName = prefixedEnvName
-		}
-	}
-
-	return primaryEnvName, secondaryEnvName, nil
 }
 
 func (b *Binder) set(val reflect.Value, str string) error {

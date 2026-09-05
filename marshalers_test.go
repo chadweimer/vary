@@ -208,7 +208,7 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 	_ = RegisterMarshaler(binder, parsePoint)
 
 	t.Run("Permissive ignores invalid env", func(t *testing.T) {
-		binder = binder.With(WithLookupEnv(MapLookupEnv(map[string]string{"POINT": "invalid_point"})))
+		binder = binder.With(WithLookup(MapLookup(map[string]string{"POINT": "invalid_point"})))
 		var cfg config
 		if err := binder.Bind(&cfg); err != nil {
 			t.Fatalf("Bind() unexpected error in permissive mode: %v", err)
@@ -221,7 +221,7 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 	t.Run("Strict returns error on invalid env", func(t *testing.T) {
 		binder = binder.With(
 			WithStrict(true),
-			WithLookupEnv(MapLookupEnv(map[string]string{"POINT": "invalid_point"})))
+			WithLookup(MapLookup(map[string]string{"POINT": "invalid_point"})))
 		var cfg config
 		if err := binder.Bind(&cfg); err == nil {
 			t.Fatalf("Bind() expected error in strict mode, got nil")
