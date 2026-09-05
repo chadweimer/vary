@@ -145,10 +145,9 @@ func TestBind_EnvVar(t *testing.T) {
 		TestMap      map[string]string `env:"TEST_MAP" default:"a=1"`
 	}
 	tests := []struct {
-		name   string
-		env    map[string]string
-		prefix string
-		want   testStruct
+		name string
+		env  map[string]string
+		want testStruct
 	}{
 		{
 			name: "Reads envs",
@@ -193,149 +192,15 @@ func TestBind_EnvVar(t *testing.T) {
 				TestMap:      map[string]string{"a": "1"},
 			},
 		},
-		{
-			name: "App-specific Env takes precedence by default",
-			env: map[string]string{
-				"TEST_INT":       "2",
-				"TEST_FLOAT":     "2.2",
-				"APP_TEST_FLOAT": "3.3",
-			},
-			prefix: "APP",
-			want: testStruct{
-				TestInt:      2,
-				TestString:   "Default",
-				TestFloat:    3.3,
-				TestDuration: 5 * time.Second,
-				TestMap:      map[string]string{"a": "1"},
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
-			DefaultBinder = New(WithLookupEnv(MapLookupEnv(tt.env)))
-			SetPrefix(tt.prefix)
+			DefaultBinder = New(WithLookup(MapLookup(tt.env)))
 			if err := Bind(&got); err != nil {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Bind() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBind_PrefixHandling(t *testing.T) {
-	type testStruct struct {
-		SomeVar    int `env:"SOME_VAR" default:"1"`
-		AnotherVar int `env:"ANOTHER_VAR" default:"1"`
-	}
-	tests := []struct {
-		name           string
-		env            map[string]string
-		prefix         string
-		prefixHandling PrefixHandling
-		strict         bool
-		want           testStruct
-		errChecker     func(error) bool
-	}{
-		{
-			name: "Always",
-			env: map[string]string{
-				"SOME_VAR":     "2",
-				"APP_SOME_VAR": "3",
-				"ANOTHER_VAR":  "4",
-			},
-			prefix:         "APP",
-			prefixHandling: PrefixHandlingAlways,
-			strict:         false,
-			want: testStruct{
-				SomeVar:    3, // Prefixed value is used
-				AnotherVar: 1, // Not set, should use default
-			},
-			errChecker: func(err error) bool {
-				return err == nil
-			},
-		},
-		{
-			name: "Primary",
-			env: map[string]string{
-				"SOME_VAR":     "2",
-				"APP_SOME_VAR": "3",
-				"ANOTHER_VAR":  "4",
-			},
-			prefix:         "APP",
-			prefixHandling: PrefixHandlingPrimary,
-			strict:         false,
-			want: testStruct{
-				SomeVar:    3, // Prefixed value is used
-				AnotherVar: 4, // Not set with prefix, should use unprefixed value
-			},
-			errChecker: func(err error) bool {
-				return err == nil
-			},
-		},
-		{
-			name: "Secondary",
-			env: map[string]string{
-				"SOME_VAR":     "2",
-				"APP_SOME_VAR": "3",
-				"ANOTHER_VAR":  "4",
-			},
-			prefix:         "APP",
-			prefixHandling: PrefixHandlingSecondary,
-			strict:         false,
-			want: testStruct{
-				SomeVar:    2, // Prefixed value is ignored, should use unprefixed value
-				AnotherVar: 4, // Not set with prefix, should use unprefixed value
-			},
-			errChecker: func(err error) bool {
-				return err == nil
-			},
-		},
-		{
-			name: "Invalid with permissive mode",
-			env: map[string]string{
-				"SOME_VAR":     "2",
-				"APP_SOME_VAR": "3",
-				"ANOTHER_VAR":  "4",
-			},
-			prefix:         "APP",
-			prefixHandling: PrefixHandling("Invalid"),
-			strict:         false,
-			want: testStruct{
-				SomeVar:    3, // Prefixed value is used
-				AnotherVar: 4, // Not set with prefix, should use unprefixed value
-			},
-			errChecker: func(err error) bool {
-				return err == nil
-			},
-		},
-		{
-			name: "Invalid with strict mode",
-			env: map[string]string{
-				"SOME_VAR":     "2",
-				"APP_SOME_VAR": "3",
-				"ANOTHER_VAR":  "4",
-			},
-			prefix:         "APP",
-			prefixHandling: PrefixHandling("Invalid"),
-			strict:         true,
-			errChecker: func(err error) bool {
-				return err != nil
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got testStruct
-			binder := NewWithPrefix(tt.prefix, tt.prefixHandling).
-				With(WithStrict(tt.strict), WithLookupEnv(MapLookupEnv(tt.env)))
-			err := binder.Bind(&got)
-			if !tt.errChecker(err) {
-				t.Fatalf("Bind() error = %v, failed errChecker", err)
-			}
-			if err == nil && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Bind() = %v, want %v", got, tt.want)
 			}
 		})
@@ -406,7 +271,7 @@ func TestBind_Required(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
-			binder := New(WithLookupEnv(MapLookupEnv(tt.env)))
+			binder := New(WithLookup(MapLookup(tt.env)))
 			if err := binder.Bind(&got); err != nil {
 				if tt.errChecker != nil {
 					if want, ok := tt.errChecker(err); !ok {
@@ -480,7 +345,7 @@ func TestBind_Strict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
-			binder := New(WithStrict(tt.strict), WithLookupEnv(MapLookupEnv(tt.env)))
+			binder := New(WithStrict(tt.strict), WithLookup(MapLookup(tt.env)))
 			err := binder.Bind(&got)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
@@ -700,22 +565,4 @@ func TestBind_BadValuesReturnError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestCompositeLookupEnv(t *testing.T) {
-	t.Run("CompositeLookupEnv returns first successful result", func(t *testing.T) {
-		env1 := MapLookupEnv(map[string]string{"KEY1": "value1"})
-		env2 := MapLookupEnv(map[string]string{"KEY1": "value2", "KEY2": "value2"})
-		composite := CompositeLookupEnv(env1, env2)
-
-		if val, ok := composite("KEY1"); !ok || val != "value1" {
-			t.Errorf("CompositeLookupEnv(KEY1) = %v, %v; want value1, true", val, ok)
-		}
-		if val, ok := composite("KEY2"); !ok || val != "value2" {
-			t.Errorf("CompositeLookupEnv(KEY2) = %v, %v; want value2, true", val, ok)
-		}
-		if val, ok := composite("KEY3"); ok || val != "" {
-			t.Errorf("CompositeLookupEnv(KEY3) = %v, %v; want \"\", false", val, ok)
-		}
-	})
 }

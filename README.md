@@ -50,33 +50,17 @@ if err := myOtherBinder.Bind(&cfg); err != nil {
 }
 ```
 
-### Environment Variable Name Prefixes
-
-If you want to use an application specific environment variable prefix in order to avoid collisions, you can configure the prefix before binding:
-
-```go
-myBinder := vary.New(vary.WithPrefix("MYAPP"))
-// If you wanted to apply this to the DefaultBinder
-// vary.DefaultBinder = vary.DefaultBinder.With(vary.WithPrefix("MYAPP"))
-
-// This will look for MYAPP_PORT, MYAPP_DEBUG, MYAPP_TIMEOUT, etc.,
-// falling back to the base name only when the one with the prefix is not set.
-if err := myBinder.Bind(&cfg); err != nil {
-    log.Fatal(err)
-}
-```
-
 ### Environment Variable Lookup
 
 This library defaults to loading environment variables from the process's environment via `os.LookupEnv()`.
-This behavior can be overridden via the `WithLookupEnv` method:
+This behavior can be overridden via the `WithLookup` method:
 
 ```go
-func myCustomLookupEnvFunc(key string) (string, bool) {
+func myCustomLookupFunc(key string) (string, bool) {
   // Do custom lookup logic
 }
 
-myBinder := vary.New(vary.WithLookupEnv(myCustomLookupEnvFunc))
+myBinder := vary.New(vary.WithLookup(myCustomLookupFunc))
 ```
 
 A common scenario is to use an in-memory map, which can be useful for utilizing a dotenv (`.env`) file:
@@ -85,16 +69,44 @@ A common scenario is to use an in-memory map, which can be useful for utilizing 
 // Use your favorite library to load the contents of the .env file
 // Assumes this returns map[string]string. Real examples likely require handling errors.
 dotenvMap := myFavoriteDotenvLib.Load(".env")
-myBinder := vary.New(vary.WithLookupEnv(vary.MapLookupEnv(dotenvMap)))
+myBinder := vary.New(vary.WithLookup(vary.MapLookup(dotenvMap)))
 ```
 
 You can also combine multiple sources together:
 
 ```go
-// The lookups are evaluated in the order provided to CompositeLookupEnv,
+// The lookups are evaluated in the order provided to CompositeLookup,
 // and the first successfully found value is used.
-myBinder := vary.New(vary.WithLookupEnv(
-  vary.CompositeLookupEnv(os.LookupEnv, vary.MapLookupEnv(dotenvMap))))
+myBinder := vary.New(vary.WithLookup(
+  vary.CompositeLookup(os.LookupEnv, vary.MapLookup(dotenvMap))))
+```
+
+#### Using a Name Prefix
+
+If you want to use an application specific environment variable prefix in order to avoid collisions,
+you can use `PrefixedLookup` to prepend a prefix to all variable lookups:
+
+```go
+myBinder := vary.New(vary.WithLookup(vary.PrefixedLookup("MYAPP_", os.LookupEnv))
+// If you wanted to apply this to the DefaultBinder
+// vary.DefaultBinder = vary.DefaultBinder.With(vary.WithLookup(vary.PrefixedLookup("MYAPP", os.LookupEnv)))
+
+// This will look for MYAPP_PORT, MYAPP_DEBUG, MYAPP_TIMEOUT, etc.
+if err := myBinder.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
+```
+
+Combining this with `CompositeLookup` allows trying both the prefixed and non-prefixed name:
+
+```go
+// This will try MYAPP_NAME first, and if not found, fall back to NAME
+prefixedPreferredBinder := vary.New(vary.WithLookup(
+  vary.CompositeLookup(vary.PrefixedLookup("MYAPP_", os.LookupEnv), os.LookupEnv)))
+
+// This will try NAME first, and if not found, fall back to MYAPP_NAME
+unprefixedPreferredBinder := vary.New(vary.WithLookup(
+  vary.CompositeLookup(os.LookupEnv, vary.PrefixedLookup("MYAPP_", os.LookupEnv))))
 ```
 
 ### Custom Marshalers
