@@ -213,7 +213,7 @@ func TestBind_EnvVar(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
-			DefaultBinder = New(WithLookupEnv(mapLookupEnv(tt.env)))
+			DefaultBinder = New(WithLookupEnv(MapLookupEnv(tt.env)))
 			SetPrefix(tt.prefix)
 			if err := Bind(&got); err != nil {
 				t.Fatal(err)
@@ -330,7 +330,7 @@ func TestBind_PrefixHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
 			binder := NewWithPrefix(tt.prefix, tt.prefixHandling).
-				With(WithStrict(tt.strict), WithLookupEnv(mapLookupEnv(tt.env)))
+				With(WithStrict(tt.strict), WithLookupEnv(MapLookupEnv(tt.env)))
 			err := binder.Bind(&got)
 			if !tt.errChecker(err) {
 				t.Fatalf("Bind() error = %v, failed errChecker", err)
@@ -406,7 +406,7 @@ func TestBind_Required(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
-			binder := New(WithLookupEnv(mapLookupEnv(tt.env)))
+			binder := New(WithLookupEnv(MapLookupEnv(tt.env)))
 			if err := binder.Bind(&got); err != nil {
 				if tt.errChecker != nil {
 					if want, ok := tt.errChecker(err); !ok {
@@ -480,7 +480,7 @@ func TestBind_Strict(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var got testStruct
-			binder := New(WithStrict(tt.strict), WithLookupEnv(mapLookupEnv(tt.env)))
+			binder := New(WithStrict(tt.strict), WithLookupEnv(MapLookupEnv(tt.env)))
 			err := binder.Bind(&got)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Bind() error = %v, wantErr %v", err, tt.wantErr)
@@ -700,4 +700,22 @@ func TestBind_BadValuesReturnError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCompositeLookupEnv(t *testing.T) {
+	t.Run("CompositeLookupEnv returns first successful result", func(t *testing.T) {
+		env1 := MapLookupEnv(map[string]string{"KEY1": "value1"})
+		env2 := MapLookupEnv(map[string]string{"KEY1": "value2", "KEY2": "value2"})
+		composite := CompositeLookupEnv(env1, env2)
+
+		if val, ok := composite("KEY1"); !ok || val != "value1" {
+			t.Errorf("CompositeLookupEnv(KEY1) = %v, %v; want value1, true", val, ok)
+		}
+		if val, ok := composite("KEY2"); !ok || val != "value2" {
+			t.Errorf("CompositeLookupEnv(KEY2) = %v, %v; want value2, true", val, ok)
+		}
+		if val, ok := composite("KEY3"); ok || val != "" {
+			t.Errorf("CompositeLookupEnv(KEY3) = %v, %v; want \"\", false", val, ok)
+		}
+	})
 }
