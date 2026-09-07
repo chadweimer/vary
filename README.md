@@ -114,7 +114,7 @@ unprefixedPreferredBinder := vary.New(vary.WithLookup(
 Putting all of the above together, the following example shows using both a prefix and an env map:
 
 ```go
-baseLookup := vary.CompositeLookup(os.LookupEnv, vary.MapLookup(dotenvMap))))
+baseLookup := vary.CompositeLookup(os.LookupEnv, vary.MapLookup(dotenvMap))
 
 // This will try MYAPP_NAME first, and if not found, fall back to NAME
 // using both the process's environment and the map from loading the .env file
