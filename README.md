@@ -151,7 +151,33 @@ if err := myBinder.Bind(&cfg); err != nil {
 }
 ```
 
-Refer to the documentation for more information on prefixes, custom marshalers, strict mode, and how to control the order of precedence between names.
+> [!NOTE]
+> The following marshalers are registered by default and cannot be overriden:
+>
+> - time.Duration
+> - encoding.TextUnmarshaler
+> - encoding.BinaryUnmarshaler
+
+### Nested Structs
+
+Nested structs are recursively bound, **except when they match a registered marshaler**.
+When a type matches a marshaler, it is treated like a "normal field" even if it is a struct.
+
+It's possible to prepend a prefix to all fields within a nested struct by adding the `env` tag.
+When specified on a nested struct field, the value of this tag is prepended to the variables names of all fields within that struct; when not specified, no prefix is used.
+In the example below, `SomeVal` will be populated by the value of the `NESTED1_VAL` and `NESTED2_VAL` environment variables, respectively.
+
+```go
+type NestedConfig struct {
+  SomeVal string `env:"VAL"`
+}
+type Config struct {
+  Nested1 NestedConfig `env:"NESTED1_"`
+  Nested2 NestedConfig `env:"NESTED2_"`
+}
+```
+
+Prefixes are inherited through additional layers of nesting.
 
 ## Documentation
 
