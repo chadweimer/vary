@@ -20,9 +20,10 @@
 //	}
 //
 // Tags:
-//   - env: specifies the environment variable name (defaults to uppercase field name)
-//   - default: specifies a default value if the environment variable is not set
-//   - required: indicates the field must be set by an environment variable or default value
+//   - env: On a regular field, specifies the environment variable name (defaults to uppercase field name if omitted)
+//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
+//   - default: Specifies a default value to use if the environment variable is not set
+//   - required: Specifies that the field must receive a value from an environment variable or default
 //
 // Supported Field Types:
 //   - String
@@ -155,9 +156,10 @@ func Bind(ptr any) error {
 //
 // Tags:
 // Bind looks for the following struct tags on exported fields:
-//   - env: specifies the environment variable name (defaults to uppercase field name if omitted)
-//   - default: specifies a default value to use if the environment variable is not set
-//   - required: specifies that the field must receive a value from an environment variable or default
+//   - env: On a regular field, specifies the environment variable name (defaults to uppercase field name if omitted)
+//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
+//   - default: Specifies a default value to use if the environment variable is not set
+//   - required: Specifies that the field must receive a value from an environment variable or default
 //
 // Returns:
 //   - ErrPointerRequired if ptr is not a pointer
@@ -169,37 +171,41 @@ func (b *Binder) Bind(ptr any) error {
 	if val := reflect.ValueOf(ptr); val.Kind() != reflect.Pointer {
 		return ErrPointerRequired
 	} else if val = val.Elem(); val.Kind() == reflect.Struct {
-		return b.bindStruct(val)
+		return b.bindStruct(val, "")
 	}
 
 	return ErrStructRequired
 }
 
-func (b *Binder) bindStruct(objVal reflect.Value) error {
+func (b *Binder) bindStruct(objVal reflect.Value, prefix string) error {
 	var errs []error
 
 	for i := 0; i < objVal.NumField(); i++ {
 		if field := objVal.Type().Field(i); field.IsExported() {
-			errs = append(errs, b.bindField(field, objVal.Field(i))...)
+			errs = append(errs, b.bindField(field, objVal.Field(i), prefix)...)
 		}
 	}
 
 	return errors.Join(errs...)
 }
 
-func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value) []error {
+func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value, prefix string) []error {
 	var errs []error
 	fieldVal = resolvePointers(fieldVal)
 
 	// If this is a struct, we need to recurse unless it has a registered marshaler
 	if fieldVal.Kind() == reflect.Struct && b.getMarshaler(fieldVal.Type()) == nil {
-		if err := b.bindStruct(fieldVal); err != nil {
+		if fieldPrefix, ok := field.Tag.Lookup("env"); ok {
+			prefix += fieldPrefix
+		}
+
+		if err := b.bindStruct(fieldVal, prefix); err != nil {
 			errs = append(errs, err)
 		}
 	} else if hasDefault, err := b.setToDefault(field, fieldVal); err != nil {
 		errs = append(errs, err)
 	} else {
-		if envSet, err := b.setFromEnv(field, fieldVal); err != nil {
+		if envSet, err := b.setFromEnv(field, fieldVal, prefix); err != nil {
 			errs = append(errs, err)
 		} else if isRequired(field) && !hasDefault && !envSet {
 			errs = append(errs, &ErrRequiredField{
@@ -237,13 +243,13 @@ func (b *Binder) setToDefault(field reflect.StructField, val reflect.Value) (boo
 	return false, nil
 }
 
-func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value) (bool, error) {
+func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value, prefix string) (bool, error) {
 	envName, ok := field.Tag.Lookup("env")
 	if !ok {
 		envName = strings.ToUpper(field.Name)
 	}
 
-	envStr, ok := b.lookupEnv(envName)
+	envStr, ok := b.lookupEnv(prefix + envName)
 	if !ok {
 		return false, nil
 	}
