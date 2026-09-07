@@ -151,7 +151,6 @@ func TestBind_EnvVar(t *testing.T) {
 		TestDuration time.Duration     `env:"TEST_DURATION" default:"5s"`
 		TestMap      map[string]string `env:"TEST_MAP" default:"a=1"`
 		TestNested   testNestedStruct  `env:"NESTED_"`
-		TestNested2  testNestedStruct
 	}
 	tests := []struct {
 		name string
