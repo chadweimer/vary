@@ -138,16 +138,14 @@ func TestBind_Defaults(t *testing.T) {
 
 func TestBind_EnvVar(t *testing.T) {
 	type testDoubleNestedStruct struct {
-		TestFloat float32 `env:"TEST_FLOAT" default:"1.1"`
+		TestFloat float32 `env:"TEST_FLOAT,^FLOAT" default:"1.1"`
 	}
 	type testNestedStruct struct {
-		TestInt    int                    `env:"TEST_INT" default:"1"`
+		TestString string                 `env:"TEST_STRING,STRING" default:"Default"`
 		TestNested testDoubleNestedStruct `env:"DOUBLE_"`
 	}
 	type testStruct struct {
-		TestInt      int               `env:"TEST_INT" default:"1"`
-		TestString   string            `env:"TEST_STRING" default:"Default"`
-		TestFloat    float32           `env:"TEST_FLOAT" default:"1.1"`
+		TestInt      int               `env:"TEST_INT,INT" default:"1"`
 		TestDuration time.Duration     `env:"TEST_DURATION" default:"5s"`
 		TestMap      map[string]string `env:"TEST_MAP" default:"a=1"`
 		TestNested   testNestedStruct  `env:"NESTED_"`
@@ -161,23 +159,39 @@ func TestBind_EnvVar(t *testing.T) {
 			name: "Reads envs",
 			env: map[string]string{
 				"TEST_INT":                 "2",
-				"TEST_STRING":              "Hello, Tests!",
-				"TEST_FLOAT":               "2.2",
 				"TEST_DURATION":            "15s",
 				"TEST_MAP":                 "k1=v1,k2=v2",
-				"NESTED_TEST_INT":          "5",
-				"NESTED_DOUBLE_TEST_FLOAT": "3.3",
+				"NESTED_TEST_STRING":       "Hello, Tests!",
+				"NESTED_DOUBLE_TEST_FLOAT": "2.2",
 			},
 			want: testStruct{
 				TestInt:      2,
-				TestString:   "Hello, Tests!",
-				TestFloat:    2.2,
 				TestDuration: 15 * time.Second,
 				TestMap:      map[string]string{"k1": "v1", "k2": "v2"},
 				TestNested: testNestedStruct{
-					TestInt: 5,
+					TestString: "Hello, Tests!",
 					TestNested: testDoubleNestedStruct{
-						TestFloat: 3.3,
+						TestFloat: 2.2,
+					},
+				},
+			},
+		},
+		{
+			name: "Reads aliases",
+			env: map[string]string{
+				"INT":                "2",
+				"NESTED_TEST_STRING": "Hello, Tests!",
+				"NESTED_STRING":      "Hello, Alias!",
+				"FLOAT":              "2.2",
+			},
+			want: testStruct{
+				TestInt:      2,
+				TestDuration: 5 * time.Second,
+				TestMap:      map[string]string{"a": "1"},
+				TestNested: testNestedStruct{
+					TestString: "Hello, Tests!",
+					TestNested: testDoubleNestedStruct{
+						TestFloat: 2.2,
 					},
 				},
 			},
@@ -187,12 +201,10 @@ func TestBind_EnvVar(t *testing.T) {
 			env:  map[string]string{},
 			want: testStruct{
 				TestInt:      1,
-				TestString:   "Default",
-				TestFloat:    1.1,
 				TestDuration: 5 * time.Second,
 				TestMap:      map[string]string{"a": "1"},
 				TestNested: testNestedStruct{
-					TestInt: 1,
+					TestString: "Default",
 					TestNested: testDoubleNestedStruct{
 						TestFloat: 1.1,
 					},
@@ -208,12 +220,10 @@ func TestBind_EnvVar(t *testing.T) {
 			},
 			want: testStruct{
 				TestInt:      1,
-				TestString:   "Default",
-				TestFloat:    1.1,
 				TestDuration: 5 * time.Second,
 				TestMap:      map[string]string{"a": "1"},
 				TestNested: testNestedStruct{
-					TestInt: 1,
+					TestString: "Default",
 					TestNested: testDoubleNestedStruct{
 						TestFloat: 1.1,
 					},

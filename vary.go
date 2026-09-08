@@ -205,7 +205,7 @@ func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value, pr
 	} else if hasDefault, err := b.setToDefault(field, fieldVal); err != nil {
 		errs = append(errs, err)
 	} else {
-		if envSet, err := b.setFromEnv(field, fieldVal, prefix); err != nil {
+		if envSet, err := b.setFromEnvs(field, fieldVal, prefix); err != nil {
 			errs = append(errs, err)
 		} else if isRequired(field) && !hasDefault && !envSet {
 			errs = append(errs, &ErrRequiredField{
@@ -243,29 +243,53 @@ func (b *Binder) setToDefault(field reflect.StructField, val reflect.Value) (boo
 	return false, nil
 }
 
-func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value, prefix string) (bool, error) {
-	envName, ok := field.Tag.Lookup("env")
-	if !ok {
-		envName = strings.ToUpper(field.Name)
+func (b *Binder) setFromEnvs(field reflect.StructField, val reflect.Value, prefix string) (bool, error) {
+	envNames := make([]string, 0)
+	if envNameStr, ok := field.Tag.Lookup("env"); ok {
+		envNames = append(envNames, strings.Split(envNameStr, ",")...)
+	} else {
+		envNames = append(envNames, strings.ToUpper(field.Name))
 	}
 
-	envStr, ok := b.lookupEnv(prefix + envName)
-	if !ok {
-		return false, nil
-	}
-
-	if err := b.set(val, envStr); err != nil {
-		if b.strict {
-			return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", envName, envStr, field.Name, err)
+	errs := make([]error, 0)
+	for _, envName := range envNames {
+		envSet, err := b.setFromSingleEnv(val, envName, prefix)
+		if err != nil {
+			errs = append(errs, err)
+		} else if envSet {
+			return true, nil
 		}
-		slog.Warn("Failed to convert environment variable. Proceeding with existing value",
-			"type", val.Type(),
-			"envName", envName,
-			"envVal", envStr,
-			"error", err)
-		return false, nil
 	}
-	return true, nil
+
+	if len(errs) > 0 && b.strict {
+		return false, fmt.Errorf("failed to set field %s: %w", field.Name, errors.Join(errs...))
+	}
+
+	return false, nil
+}
+
+func (b *Binder) setFromSingleEnv(val reflect.Value, envName string, prefix string) (bool, error) {
+	// If the name starts with a '^', do not append the prefix
+	if strings.HasPrefix(envName, "^") {
+		envName = envName[1:]
+	} else {
+		envName = prefix + envName
+	}
+
+	if envStr, ok := b.lookupEnv(envName); ok {
+		if err := b.set(val, envStr); err != nil {
+			slog.Warn("Failed to convert environment variable.",
+				"type", val.Type(),
+				"envName", envName,
+				"envVal", envStr,
+				"error", err)
+			return false, fmt.Errorf("failed to parse environment variable %s=%q: %w", envName, envStr, err)
+		} else {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (b *Binder) set(val reflect.Value, str string) error {
