@@ -93,6 +93,11 @@ type Config struct {
 }
 ```
 
+Additional aliases will be tried if an error is encountered while parsing one of the values.
+
+> [!NOTE]
+> This means that when strict mode is enabled, an error will NOT be returned from `Bind` if one of the aliases results in successfully setting the field even if other aliases caused errors.
+
 #### Using a Global Prefix
 
 If you want to use an application specific environment variable prefix in order to avoid collisions,

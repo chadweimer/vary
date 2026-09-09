@@ -20,7 +20,7 @@
 //	}
 //
 // Tags:
-//   - env: On a regular field, specifies the environment variable name (defaults to uppercase field name if omitted)
+//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted); separate multiple names (aliases) with a comma
 //     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
 //   - default: Specifies a default value to use if the environment variable is not set
 //   - required: Specifies that the field must receive a value from an environment variable or default
@@ -156,7 +156,7 @@ func Bind(ptr any) error {
 //
 // Tags:
 // Bind looks for the following struct tags on exported fields:
-//   - env: On a regular field, specifies the environment variable name (defaults to uppercase field name if omitted)
+//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted); separate multiple names (aliases) with a comma
 //     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
 //   - default: Specifies a default value to use if the environment variable is not set
 //   - required: Specifies that the field must receive a value from an environment variable or default
