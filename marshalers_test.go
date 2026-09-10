@@ -238,3 +238,45 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 		}
 	})
 }
+
+func TestClearMarshalers(t *testing.T) {
+	tests := []struct {
+		name    string
+		creator func() *Binder
+	}{
+		{
+			name: "New",
+			creator: func() *Binder {
+				return New(ClearMarshalers())
+			},
+		},
+		{
+			name: "With (Defaults)",
+			creator: func() *Binder {
+				return New().With(ClearMarshalers())
+			},
+		},
+		{
+			name: "With (Custom)",
+			creator: func() *Binder {
+				binder := New()
+				_ = RegisterMarshaler(binder, parsePoint)
+				return binder.With(ClearMarshalers())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binder := tt.creator()
+
+			// Ensure the marshalers are cleared
+			if len(binder.marshalers) != 0 {
+				t.Errorf("Expected all marshalers to be cleared, but found %d", len(binder.marshalers))
+			}
+			if len(binder.orderedMarshalers) != 0 {
+				t.Errorf("Expected all ordered marshalers to be cleared, but found %d", len(binder.orderedMarshalers))
+			}
+		})
+	}
+}

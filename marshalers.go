@@ -68,6 +68,15 @@ func RegisterMutatingMarshaler[T any](b *Binder, marshaler func(string, T) error
 	return errors.New("marshaler must be a function with signature func(string, T) error, where T is an interface")
 }
 
+// ClearMarshalers returns an Option that clears all marshalers from the Binder.
+// When used, this option will remove all previously registered marshalers, including both default and custom ones.
+func ClearMarshalers() Option {
+	return func(b *Binder) {
+		clear(b.marshalers)
+		b.orderedMarshalers = b.orderedMarshalers[:0]
+	}
+}
+
 func (b *Binder) registerMarshaler(targetType reflect.Type, marshaler marshaler) {
 	b.marshalers[targetType], b.orderedMarshalers = marshaler, append(b.orderedMarshalers, targetType)
 }

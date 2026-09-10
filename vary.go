@@ -20,10 +20,13 @@
 //	}
 //
 // Tags:
-//   - env: On a regular field, specifies the environment variable name (defaults to uppercase field name if omitted)
-//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
-//   - default: Specifies a default value to use if the environment variable is not set
-//   - required: Specifies that the field must receive a value from an environment variable or default
+//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted);
+//     separate multiple names (aliases) with a comma;
+//     set to "-" to ignore the environment variable for this field;
+//     start with a "^" to exclude prefixes inherited from parent structs.
+//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted).
+//   - default: Specifies a default value to use if the environment variable is not set.
+//   - required: Specifies that the field must receive a value from an environment variable or default.
 //
 // Supported Field Types:
 //   - String
@@ -156,10 +159,13 @@ func Bind(ptr any) error {
 //
 // Tags:
 // Bind looks for the following struct tags on exported fields:
-//   - env: On a regular field, specifies the environment variable name (defaults to uppercase field name if omitted)
-//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
-//   - default: Specifies a default value to use if the environment variable is not set
-//   - required: Specifies that the field must receive a value from an environment variable or default
+//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted);
+//     separate multiple names (aliases) with a comma;
+//     set to "-" to ignore the environment variable for this field;
+//     start with a "^" to exclude prefixes inherited from parent structs.
+//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted).
+//   - default: Specifies a default value to use if the environment variable is not set.
+//   - required: Specifies that the field must receive a value from an environment variable or default.
 //
 // Returns:
 //   - ErrPointerRequired if ptr is not a pointer
@@ -205,7 +211,7 @@ func (b *Binder) bindField(field reflect.StructField, fieldVal reflect.Value, pr
 	} else if hasDefault, err := b.setToDefault(field, fieldVal); err != nil {
 		errs = append(errs, err)
 	} else {
-		if envSet, err := b.setFromEnv(field, fieldVal, prefix); err != nil {
+		if envSet, err := b.setFromEnvs(field, fieldVal, prefix); err != nil {
 			errs = append(errs, err)
 		} else if isRequired(field) && !hasDefault && !envSet {
 			errs = append(errs, &ErrRequiredField{
@@ -243,29 +249,63 @@ func (b *Binder) setToDefault(field reflect.StructField, val reflect.Value) (boo
 	return false, nil
 }
 
-func (b *Binder) setFromEnv(field reflect.StructField, val reflect.Value, prefix string) (bool, error) {
-	envName, ok := field.Tag.Lookup("env")
-	if !ok {
-		envName = strings.ToUpper(field.Name)
-	}
-
-	envStr, ok := b.lookupEnv(prefix + envName)
-	if !ok {
-		return false, nil
-	}
-
-	if err := b.set(val, envStr); err != nil {
-		if b.strict {
-			return false, fmt.Errorf("failed to parse environment variable %s=%q for field %s: %w", envName, envStr, field.Name, err)
+func (b *Binder) setFromEnvs(field reflect.StructField, val reflect.Value, prefix string) (bool, error) {
+	var errs []error
+	for _, envName := range getEnvNames(field) {
+		envSet, err := b.setFromSingleEnv(val, envName, prefix)
+		if err != nil {
+			errs = append(errs, err)
+		} else if envSet {
+			return true, nil
 		}
-		slog.Warn("Failed to convert environment variable. Proceeding with existing value",
-			"type", val.Type(),
-			"envName", envName,
-			"envVal", envStr,
-			"error", err)
-		return false, nil
 	}
-	return true, nil
+
+	if len(errs) > 0 && b.strict {
+		return false, fmt.Errorf("failed to set field %s: %w", field.Name, errors.Join(errs...))
+	}
+
+	return false, nil
+}
+
+func getEnvNames(field reflect.StructField) []string {
+	if envNameStr, ok := field.Tag.Lookup("env"); ok {
+		// A single value of '-' indicates that no environment variable should be used.
+		if envNameStr == "-" {
+			return nil
+		}
+
+		envNames := strings.Split(envNameStr, ",")
+		for i := range envNames {
+			envNames[i] = strings.TrimSpace(envNames[i])
+		}
+		return envNames
+	}
+
+	return []string{strings.ToUpper(field.Name)}
+}
+
+func (b *Binder) setFromSingleEnv(val reflect.Value, envName string, prefix string) (bool, error) {
+	// If the name starts with a '^', do not append the prefix
+	if strings.HasPrefix(envName, "^") {
+		envName = envName[1:]
+	} else {
+		envName = prefix + envName
+	}
+
+	if envStr, ok := b.lookupEnv(envName); ok {
+		if err := b.set(val, envStr); err != nil {
+			slog.Warn("Failed to convert environment variable.",
+				"type", val.Type(),
+				"envName", envName,
+				"envVal", envStr,
+				"error", err)
+			return false, fmt.Errorf("failed to parse environment variable %s=%q: %w", envName, envStr, err)
+		} else {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (b *Binder) set(val reflect.Value, str string) error {

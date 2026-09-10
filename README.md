@@ -15,11 +15,11 @@ Declaring your configuration objects, optionally decorating each field with stru
 
 ```go
 type Config struct {
-    Port     int               `env:"PORT" default:"8080"`
-    Debug    bool              `default:"false"` // Will use the all-caps name "DEBUG"
-    Timeout  time.Duration     `env:"TIMEOUT" default:"30s"`
-    Database url.URL           `env:"DATABASE_URL" required:"true"`
-    Tags     map[string]string `env:"TAGS" default:"env=dev,tier=frontend"`
+  Port     int               `env:"PORT" default:"8080"`
+  Debug    bool              `default:"false"` // Will use the all-caps name "DEBUG"
+  Timeout  time.Duration     `env:"TIMEOUT" default:"30s"`
+  Database url.URL           `env:"DATABASE_URL" required:"true"`
+  Tags     map[string]string `env:"TAGS" default:"env=dev,tier=frontend"`
 }
 ```
 
@@ -28,7 +28,7 @@ Then, bind the struct to set field values based on the current state of environm
 ```go
 var cfg Config
 if err := vary.Bind(&cfg); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 ```
 
@@ -37,7 +37,7 @@ You can also create specific instances of a `Binder` rather than using the packa
 ```go
 myBinder := vary.New() // Customize the instance as needed via passing options to New...
 if err := myBinder.Bind(&cfg); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 ```
 
@@ -46,7 +46,7 @@ Or even create a new customized instance starting from the same settings as an e
 ```go
 myOtherBinder := myBinder.With(vary.WithStrict(true))
 if err := myOtherBinder.Bind(&cfg); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 ```
 
@@ -81,7 +81,38 @@ myBinder := vary.New(vary.WithLookup(
   vary.CompositeLookup(os.LookupEnv, vary.MapLookup(dotenvMap))))
 ```
 
-#### Using a Name Prefix
+#### Ignoring a Field
+
+To ignore a field, set the `env` tag to "-":
+
+```go
+type Config struct {
+  MyIgnoredField int `env:"-"`
+}
+```
+
+> [!NOTE]
+> The effects of the `default` and `required` tags still apply, if specified.
+> This will only result in skipping attempting to load the value from the environment.
+
+#### Aliases
+
+It's supported to list multiple environment variables names on a field, with each separated by a comma.
+These names are tried in the order specificed, and the first successfully found value is used.
+All prefix rules documented elsewhere apply to each name.
+
+```go
+type Config struct {
+  Port int `env:"PORT,HTTP_PORT,SERVER_PORT"`
+}
+```
+
+Additional aliases will be tried if an error is encountered while parsing one of the values.
+
+> [!IMPORTANT]
+> This means that when strict mode is enabled, an error will NOT be returned from `Bind` if one of the aliases results in successfully setting the field even if other aliases caused errors.
+
+#### Using a Global Prefix
 
 If you want to use an application specific environment variable prefix in order to avoid collisions,
 you can use `PrefixedLookup` to prepend a prefix to all variable lookups:
@@ -93,7 +124,7 @@ myBinder := vary.New(vary.WithLookup(vary.PrefixedLookup("MYAPP_", os.LookupEnv)
 
 // This will look for MYAPP_PORT, MYAPP_DEBUG, MYAPP_TIMEOUT, etc.
 if err := myBinder.Bind(&cfg); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 ```
 
@@ -130,33 +161,35 @@ You can register custom marshaler functions for custom types:
 // Marshaling to a new value.
 // This shows how to do this using the DefaultBinder.
 if err := vary.RegisterMarshaler(vary.DefaultBinder, func(s string) (CustomType, error) {
-    return parseCustomType(s)
+  return parseCustomType(s)
 }); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 if err := vary.Bind(&cfg); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 
 // Mutating the value of any type that implements a custom interface.
 // This shows using a specific Binder instance
 myBinder := vary.New()
 if err := vary.RegisterMutatingMarshaler(myBinder, func(s string, i CustomMarshalingInterface) error {
-    return i.CustomMarshalMethod(s)
+  return i.CustomMarshalMethod(s)
 }); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 if err := myBinder.Bind(&cfg); err != nil {
-    log.Fatal(err)
+  log.Fatal(err)
 }
 ```
 
 > [!NOTE]
-> The following marshalers are registered by default and cannot be overriden:
+> The following marshalers are registered by default:
 >
 > - time.Duration
 > - encoding.TextUnmarshaler
 > - encoding.BinaryUnmarshaler
+>
+> If you do not want these, use the `ClearMarshalers` option when constructing (or cloning) the `Binder`.
 
 ### Nested Structs
 
@@ -178,6 +211,32 @@ type Config struct {
 ```
 
 Prefixes are inherited through additional layers of nesting.
+
+#### Ignoring Prefixes
+
+As a special case, it's possible to explicitly ignore prefixes for a field in a nested struct.
+To do so, add a carat (`^`) before the variable name:
+
+```go
+type Config struct {
+  MyInt int `env:"^MY_INT"`
+}
+```
+
+This will ignore ALL inherited prefixes through all layers of nesting.
+
+> [!IMPORTANT]
+> This does NOT ignore prefixes that are the result on a `LookupEnvFunc` (e.g., `PrefixedLookup`).
+
+There could be many use cases for this, but a common example is when you want to support a "global default" while still supporting instance-specific values.
+This can be accomplished through the combination of ignoring the prefix and aliases. E.g.,
+
+```go
+type NestedConfig struct {
+  // It's important that GLOBAL_VAL is listed second
+  SomeVal string `env:"VAL,^GLOBAL_VAL"`
+}
+```
 
 ## Documentation
 
