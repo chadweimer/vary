@@ -183,11 +183,13 @@ if err := myBinder.Bind(&cfg); err != nil {
 ```
 
 > [!NOTE]
-> The following marshalers are registered by default and cannot be overriden:
+> The following marshalers are registered by default:
 >
 > - time.Duration
 > - encoding.TextUnmarshaler
 > - encoding.BinaryUnmarshaler
+>
+> If you do not want these, use the `ClearMarshalers` option when constructing (or cloning) the `Binder`.
 
 ### Nested Structs
 
