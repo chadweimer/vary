@@ -74,7 +74,7 @@ func AddMutatingMarshaler[T any](marshaler func(string, T) error) error {
 	return DefaultBinder.AddMutatingMarshaler(marshaler)
 }
 
-// AddMutatingMarshaler  registers a custom marshaler function for an interface of type T, where T must be an interface type.
+// AddMutatingMarshaler registers a custom marshaler function for an interface of type T, where T must be an interface type.
 // The marshaler function must use the supplied object of type T to unmarshal and mutate in-place.
 //
 // During the binding processes, the marshalers are evaluated in the order they were registered.
