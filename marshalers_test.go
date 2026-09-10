@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 type testCustomPoint struct {
@@ -240,39 +239,44 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 	})
 }
 
-func TestClearMarshalers_Constructor(t *testing.T) {
-	binder := New(ClearMarshalers())
-
-	// Ensure the marshalers are cleared
-	var types = []reflect.Type{
-		reflect.TypeFor[time.Duration](),
-		reflect.TypeFor[encoding.TextUnmarshaler](),
-		reflect.TypeFor[encoding.BinaryUnmarshaler](),
+func TestClearMarshalers(t *testing.T) {
+	tests := []struct {
+		name    string
+		creator func() *Binder
+	}{
+		{
+			name: "New",
+			creator: func() *Binder {
+				return New(ClearMarshalers())
+			},
+		},
+		{
+			name: "With (Defaults)",
+			creator: func() *Binder {
+				return New().With(ClearMarshalers())
+			},
+		},
+		{
+			name: "With (Custom)",
+			creator: func() *Binder {
+				binder := New()
+				_ = RegisterMarshaler(binder, parsePoint)
+				return binder.With(ClearMarshalers())
+			},
+		},
 	}
-	for _, targetType := range types {
-		if binder.getMarshaler(targetType) != nil {
-			t.Errorf("Expected marshaler to be cleared for type %v", targetType)
-		}
-	}
-}
 
-func TestClearMarshalers_With(t *testing.T) {
-	binder := New()
-	_ = RegisterMarshaler(binder, parsePoint)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			binder := tt.creator()
 
-	// Clear all marshalers
-	binder = binder.With(ClearMarshalers())
-
-	// Ensure the marshalers are cleared
-	var types = []reflect.Type{
-		reflect.TypeFor[time.Duration](),
-		reflect.TypeFor[encoding.TextUnmarshaler](),
-		reflect.TypeFor[encoding.BinaryUnmarshaler](),
-		reflect.TypeFor[testCustomPoint](),
-	}
-	for _, targetType := range types {
-		if binder.getMarshaler(targetType) != nil {
-			t.Errorf("Expected marshaler to be cleared for type %v", targetType)
-		}
+			// Ensure the marshalers are cleared
+			if len(binder.marshalers) != 0 {
+				t.Errorf("Expected all marshalers to be cleared, but found %d", len(binder.marshalers))
+			}
+			if len(binder.orderedMarshalers) != 0 {
+				t.Errorf("Expected all ordered marshalers to be cleared, but found %d", len(binder.orderedMarshalers))
+			}
+		})
 	}
 }
