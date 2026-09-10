@@ -20,10 +20,13 @@
 //	}
 //
 // Tags:
-//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted); separate multiple names (aliases) with a comma
-//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
-//   - default: Specifies a default value to use if the environment variable is not set
-//   - required: Specifies that the field must receive a value from an environment variable or default
+//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted);
+//     separate multiple names (aliases) with a comma;
+//     set to "-" to ignore the environment variable for this field;
+//     start with a "^" to exclude prefixes inherited from parent structs.
+//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted).
+//   - default: Specifies a default value to use if the environment variable is not set.
+//   - required: Specifies that the field must receive a value from an environment variable or default.
 //
 // Supported Field Types:
 //   - String
@@ -156,10 +159,13 @@ func Bind(ptr any) error {
 //
 // Tags:
 // Bind looks for the following struct tags on exported fields:
-//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted); separate multiple names (aliases) with a comma
-//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted)
-//   - default: Specifies a default value to use if the environment variable is not set
-//   - required: Specifies that the field must receive a value from an environment variable or default
+//   - env: On a regular field, specifies the environment variable name(s) (defaults to uppercase field name if omitted);
+//     separate multiple names (aliases) with a comma;
+//     set to "-" to ignore the environment variable for this field;
+//     start with a "^" to exclude prefixes inherited from parent structs.
+//     On a nested struct field, specifies a prefix to prepend to environment variable names within that struct (defaults to an empty string if omitted).
+//   - default: Specifies a default value to use if the environment variable is not set.
+//   - required: Specifies that the field must receive a value from an environment variable or default.
 //
 // Returns:
 //   - ErrPointerRequired if ptr is not a pointer
@@ -244,15 +250,8 @@ func (b *Binder) setToDefault(field reflect.StructField, val reflect.Value) (boo
 }
 
 func (b *Binder) setFromEnvs(field reflect.StructField, val reflect.Value, prefix string) (bool, error) {
-	envNames := make([]string, 0)
-	if envNameStr, ok := field.Tag.Lookup("env"); ok {
-		envNames = append(envNames, strings.Split(envNameStr, ",")...)
-	} else {
-		envNames = append(envNames, strings.ToUpper(field.Name))
-	}
-
-	errs := make([]error, 0)
-	for _, envName := range envNames {
+	var errs []error
+	for _, envName := range getEnvNames(field) {
 		envSet, err := b.setFromSingleEnv(val, envName, prefix)
 		if err != nil {
 			errs = append(errs, err)
@@ -266,6 +265,23 @@ func (b *Binder) setFromEnvs(field reflect.StructField, val reflect.Value, prefi
 	}
 
 	return false, nil
+}
+
+func getEnvNames(field reflect.StructField) []string {
+	if envNameStr, ok := field.Tag.Lookup("env"); ok {
+		// A single value of '-' indicates that no environment variable should be used.
+		if envNameStr == "-" {
+			return nil
+		}
+
+		envNames := strings.Split(envNameStr, ",")
+		for i := range envNames {
+			envNames[i] = strings.TrimSpace(envNames[i])
+		}
+		return envNames
+	}
+
+	return []string{strings.ToUpper(field.Name)}
 }
 
 func (b *Binder) setFromSingleEnv(val reflect.Value, envName string, prefix string) (bool, error) {

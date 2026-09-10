@@ -148,6 +148,7 @@ func TestBind_EnvVar(t *testing.T) {
 		TestInt      int               `env:"TEST_INT,INT" default:"1"`
 		TestDuration time.Duration     `env:"TEST_DURATION" default:"5s"`
 		TestMap      map[string]string `env:"TEST_MAP" default:"a=1"`
+		TestIgnore   string            `env:"-"`
 		TestNested   testNestedStruct  `env:"NESTED_"`
 	}
 	tests := []struct {
@@ -161,6 +162,7 @@ func TestBind_EnvVar(t *testing.T) {
 				"TEST_INT":                 "2",
 				"TEST_DURATION":            "15s",
 				"TEST_MAP":                 "k1=v1,k2=v2",
+				"TESTIGNORE":               "should be ignored",
 				"NESTED_TEST_STRING":       "Hello, Tests!",
 				"NESTED_DOUBLE_TEST_FLOAT": "2.2",
 			},
@@ -168,6 +170,7 @@ func TestBind_EnvVar(t *testing.T) {
 				TestInt:      2,
 				TestDuration: 15 * time.Second,
 				TestMap:      map[string]string{"k1": "v1", "k2": "v2"},
+				TestIgnore:   "",
 				TestNested: testNestedStruct{
 					TestString: "Hello, Tests!",
 					TestNested: testDoubleNestedStruct{
