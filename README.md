@@ -81,6 +81,20 @@ myBinder := vary.New(vary.WithLookup(
   vary.CompositeLookup(os.LookupEnv, vary.MapLookup(dotenvMap))))
 ```
 
+#### Ignoring a Field
+
+To ignore a field, set the `env` tag to "-":
+
+```go
+type Config struct {
+  MyIgnoredField int `env:"-"`
+}
+```
+
+> [!NOTE]
+> The effects of the `default` and `required` tags still apply, if specified.
+> This will only result in skipping attempting to load the value from the environment.
+
 #### Aliases
 
 It's supported to list multiple environment variables names on a field, with each separated by a comma.
