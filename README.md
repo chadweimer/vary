@@ -160,7 +160,7 @@ You can register custom marshaler functions for custom types:
 ```go
 // Marshaling to a new value.
 // This shows how to do this using the DefaultBinder.
-if err := vary.RegisterMarshaler(vary.DefaultBinder, func(s string) (CustomType, error) {
+if err := vary.AddMarshaler(func(s string) (CustomType, error) {
   return parseCustomType(s)
 }); err != nil {
   log.Fatal(err)
@@ -172,7 +172,7 @@ if err := vary.Bind(&cfg); err != nil {
 // Mutating the value of any type that implements a custom interface.
 // This shows using a specific Binder instance
 myBinder := vary.New()
-if err := vary.RegisterMutatingMarshaler(myBinder, func(s string, i CustomMarshalingInterface) error {
+if err := myBinder.AddMutatingMarshaler(func(s string, i CustomMarshalingInterface) error {
   return i.CustomMarshalMethod(s)
 }); err != nil {
   log.Fatal(err)
@@ -240,4 +240,4 @@ type NestedConfig struct {
 
 ## Documentation
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/chadweimer/vary.svg)](https://pkg.go.dev/github.com/chadweimer/vary)
+[![Go Reference](https://pkg.go.dev/badge/github.com/chadweimer/vary.svg)](https://pkg.go.dev/github.com/chadweimer/vary/v2)

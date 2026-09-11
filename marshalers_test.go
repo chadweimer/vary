@@ -30,42 +30,45 @@ func parsePoint(s string) (testCustomPoint, error) {
 	return testCustomPoint{X: x, Y: y}, nil
 }
 
+type sizeParser interface {
+	ParseSize(s string) error
+}
+
 type testCustomSize struct {
 	W int
 	H int
 }
 
-func parseSize(s string) (testCustomSize, error) {
+func (t *testCustomSize) ParseSize(s string) error {
 	parts := strings.Split(s, "x")
 	if len(parts) != 2 {
-		return testCustomSize{}, errors.New("invalid size format, expected WxH")
+		return errors.New("invalid size format, expected WxH")
 	}
 	w, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return testCustomSize{}, err
+		return err
 	}
 	h, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return testCustomSize{}, err
+		return err
 	}
-	return testCustomSize{W: w, H: h}, nil
+
+	t.W = w
+	t.H = h
+	return nil
 }
 
-func TestBinder_RegisterMarshaler(t *testing.T) {
+func TestBinder_AddMarshaler(t *testing.T) {
 	type config struct {
 		Point       testCustomPoint            `env:"POINT" default:"10:20"`
 		Points      []testCustomPoint          `env:"POINTS" default:"1:2,3:4"`
-		Size        testCustomSize             `env:"SIZE" default:"100x200"`
 		PointMap    map[string]testCustomPoint `env:"POINT_MAP" default:"a=5:6,b=7:8"`
 		KeyPointMap map[testCustomPoint]string `env:"KEY_POINT_MAP" default:"9:10=first,11:12=second"`
 	}
 
 	binder := New()
-	if err := RegisterMarshaler(binder, parsePoint); err != nil {
-		t.Fatalf("RegisterMarshaler(parsePoint) unexpected error: %v", err)
-	}
-	if err := RegisterMarshaler(binder, parseSize); err != nil {
-		t.Fatalf("RegisterMarshaler(parseSize) unexpected error: %v", err)
+	if err := binder.AddMarshaler(parsePoint); err != nil {
+		t.Fatalf("AddMarshaler(parsePoint) unexpected error: %v", err)
 	}
 
 	var cfg config
@@ -79,7 +82,6 @@ func TestBinder_RegisterMarshaler(t *testing.T) {
 			{X: 1, Y: 2},
 			{X: 3, Y: 4},
 		},
-		Size: testCustomSize{W: 100, H: 200},
 		PointMap: map[string]testCustomPoint{
 			"a": {X: 5, Y: 6},
 			"b": {X: 7, Y: 8},
@@ -95,7 +97,45 @@ func TestBinder_RegisterMarshaler(t *testing.T) {
 	}
 }
 
-func TestBinder_RegisterMarshaler_Invalid(t *testing.T) {
+func TestBinder_AddMarshaler_DefaultBinder(t *testing.T) {
+	type config struct {
+		Point       testCustomPoint            `env:"POINT" default:"10:20"`
+		Points      []testCustomPoint          `env:"POINTS" default:"1:2,3:4"`
+		PointMap    map[string]testCustomPoint `env:"POINT_MAP" default:"a=5:6,b=7:8"`
+		KeyPointMap map[testCustomPoint]string `env:"KEY_POINT_MAP" default:"9:10=first,11:12=second"`
+	}
+
+	if err := AddMarshaler(parsePoint); err != nil {
+		t.Fatalf("AddMarshaler unexpected error: %v", err)
+	}
+
+	var cfg config
+	if err := Bind(&cfg); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	want := config{
+		Point: testCustomPoint{X: 10, Y: 20},
+		Points: []testCustomPoint{
+			{X: 1, Y: 2},
+			{X: 3, Y: 4},
+		},
+		PointMap: map[string]testCustomPoint{
+			"a": {X: 5, Y: 6},
+			"b": {X: 7, Y: 8},
+		},
+		KeyPointMap: map[testCustomPoint]string{
+			{X: 9, Y: 10}:  "first",
+			{X: 11, Y: 12}: "second",
+		},
+	}
+
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("Bind() = %+v, want %+v", cfg, want)
+	}
+}
+
+func TestBinder_AddMarshaler_Invalid(t *testing.T) {
 	binder := New()
 
 	tests := []struct {
@@ -103,21 +143,15 @@ func TestBinder_RegisterMarshaler_Invalid(t *testing.T) {
 		registrator func(b *Binder) error
 	}{
 		{
-			name: "nil binder",
-			registrator: func(b *Binder) error {
-				return RegisterMarshaler(nil, parsePoint)
-			},
-		},
-		{
 			name: "nil marshaler",
 			registrator: func(b *Binder) error {
-				return RegisterMarshaler[testCustomPoint](b, nil)
+				return b.AddMarshaler[testCustomPoint](nil)
 			},
 		},
 		{
 			name: "pointer",
 			registrator: func(b *Binder) error {
-				return RegisterMarshaler(b, func(string) (*testCustomPoint, error) {
+				return b.AddMarshaler(func(string) (*testCustomPoint, error) {
 					return &testCustomPoint{}, nil
 				})
 			},
@@ -127,19 +161,144 @@ func TestBinder_RegisterMarshaler_Invalid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.registrator(binder); err == nil {
-				t.Fatalf("RegisterMarshaler() expected error on invalid marshaler, got nil")
+				t.Fatalf("AddMarshaler() expected error on invalid marshaler, got nil")
 			}
 		})
 	}
 }
 
-func TestBinder_RegisterMutatingMarshaler_Invalid(t *testing.T) {
+func TestBinder_RegisterMarshaler(t *testing.T) {
 	binder := New()
 
 	tests := []struct {
 		name        string
 		registrator func(b *Binder) error
+		wantErr     bool
 	}{
+		{
+			name: "Nominal",
+			registrator: func(b *Binder) error {
+				return RegisterMarshaler(b, parsePoint)
+			},
+			wantErr: false,
+		},
+		{
+			name: "nil binder",
+			registrator: func(b *Binder) error {
+				return RegisterMarshaler(nil, parsePoint)
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.registrator(binder)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("RegisterMarshaler() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBinder_AddMutatingMarshaler(t *testing.T) {
+	type config struct {
+		Size       testCustomSize            `env:"SIZE" default:"10x20"`
+		Sizes      []testCustomSize          `env:"SIZES" default:"1x2,3x4"`
+		SizeMap    map[string]testCustomSize `env:"SIZE_MAP" default:"a=5x6,b=7x8"`
+		KeySizeMap map[testCustomSize]string `env:"KEY_SIZE_MAP" default:"9x10=first,11x12=second"`
+	}
+
+	binder := New()
+	if err := binder.AddMutatingMarshaler(func(s string, t sizeParser) error {
+		return t.ParseSize(s)
+	}); err != nil {
+		t.Fatalf("AddMutatingMarshaler unexpected error: %v", err)
+	}
+
+	var cfg config
+	if err := binder.Bind(&cfg); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	want := config{
+		Size: testCustomSize{W: 10, H: 20},
+		Sizes: []testCustomSize{
+			{W: 1, H: 2},
+			{W: 3, H: 4},
+		},
+		SizeMap: map[string]testCustomSize{
+			"a": {W: 5, H: 6},
+			"b": {W: 7, H: 8},
+		},
+		KeySizeMap: map[testCustomSize]string{
+			{W: 9, H: 10}:  "first",
+			{W: 11, H: 12}: "second",
+		},
+	}
+
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("Bind() = %+v, want %+v", cfg, want)
+	}
+}
+
+func TestBinder_AddMutatingMarshaler_DefaultBinder(t *testing.T) {
+	type config struct {
+		Size       testCustomSize            `env:"SIZE" default:"10x20"`
+		Sizes      []testCustomSize          `env:"SIZES" default:"1x2,3x4"`
+		SizeMap    map[string]testCustomSize `env:"SIZE_MAP" default:"a=5x6,b=7x8"`
+		KeySizeMap map[testCustomSize]string `env:"KEY_SIZE_MAP" default:"9x10=first,11x12=second"`
+	}
+
+	if err := AddMutatingMarshaler(func(s string, t sizeParser) error {
+		return t.ParseSize(s)
+	}); err != nil {
+		t.Fatalf("AddMutatingMarshaler unexpected error: %v", err)
+	}
+
+	var cfg config
+	if err := Bind(&cfg); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	want := config{
+		Size: testCustomSize{W: 10, H: 20},
+		Sizes: []testCustomSize{
+			{W: 1, H: 2},
+			{W: 3, H: 4},
+		},
+		SizeMap: map[string]testCustomSize{
+			"a": {W: 5, H: 6},
+			"b": {W: 7, H: 8},
+		},
+		KeySizeMap: map[testCustomSize]string{
+			{W: 9, H: 10}:  "first",
+			{W: 11, H: 12}: "second",
+		},
+	}
+
+	if !reflect.DeepEqual(cfg, want) {
+		t.Errorf("Bind() = %+v, want %+v", cfg, want)
+	}
+}
+
+func TestBinder_RegisterMutatingMarshaler(t *testing.T) {
+	binder := New()
+
+	tests := []struct {
+		name        string
+		registrator func(b *Binder) error
+		wantErr     bool
+	}{
+		{
+			name: "Nominal",
+			registrator: func(b *Binder) error {
+				return RegisterMutatingMarshaler(b, func(string, encoding.TextUnmarshaler) error {
+					return nil
+				})
+			},
+			wantErr: false,
+		},
 		{
 			name: "nil binder",
 			registrator: func(b *Binder) error {
@@ -147,17 +306,37 @@ func TestBinder_RegisterMutatingMarshaler_Invalid(t *testing.T) {
 					return nil
 				})
 			},
+			wantErr: true,
 		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.registrator(binder)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("RegisterMutatingMarshaler() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBinder_AddMutatingMarshaler_Invalid(t *testing.T) {
+	binder := New()
+
+	tests := []struct {
+		name        string
+		registrator func(b *Binder) error
+	}{
 		{
 			name: "nil marshaler",
 			registrator: func(b *Binder) error {
-				return RegisterMutatingMarshaler[testCustomPoint](b, nil)
+				return b.AddMutatingMarshaler[testCustomPoint](nil)
 			},
 		},
 		{
-			name: "pointer",
+			name: "non-interface",
 			registrator: func(b *Binder) error {
-				return RegisterMutatingMarshaler(b, func(string, *testCustomPoint) error {
+				return b.AddMutatingMarshaler(func(string, testCustomPoint) error {
 					return nil
 				})
 			},
@@ -167,36 +346,9 @@ func TestBinder_RegisterMutatingMarshaler_Invalid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.registrator(binder); err == nil {
-				t.Fatalf("RegisterMutatingMarshaler() expected error on invalid marshaler, got nil")
+				t.Fatalf("AddMutatingMarshaler() expected error on invalid marshaler, got nil")
 			}
 		})
-	}
-}
-
-func TestRegisterMarshaler_Global(t *testing.T) {
-	type customScore int
-	type config struct {
-		Score customScore `env:"SCORE" default:"100"`
-	}
-
-	err := RegisterMarshaler(DefaultBinder, func(s string) (customScore, error) {
-		val, err := strconv.Atoi(s)
-		if err != nil {
-			return 0, err
-		}
-		return customScore(val * 2), nil
-	})
-	if err != nil {
-		t.Fatalf("RegisterMarshaler(nil, fn) error: %v", err)
-	}
-
-	var cfg config
-	if err := Bind(&cfg); err != nil {
-		t.Fatalf("Bind() error: %v", err)
-	}
-
-	if cfg.Score != 200 {
-		t.Errorf("Bind() Score = %d, want 200", cfg.Score)
 	}
 }
 
@@ -205,7 +357,7 @@ func TestCustomMarshaler_StrictAndPermissive(t *testing.T) {
 		Point testCustomPoint `env:"POINT" default:"1:2"`
 	}
 	binder := New()
-	_ = RegisterMarshaler(binder, parsePoint)
+	_ = binder.AddMarshaler(parsePoint)
 
 	t.Run("Permissive ignores invalid env", func(t *testing.T) {
 		binder = binder.With(WithLookup(MapLookup(map[string]string{"POINT": "invalid_point"})))
@@ -260,7 +412,7 @@ func TestClearMarshalers(t *testing.T) {
 			name: "With (Custom)",
 			creator: func() *Binder {
 				binder := New()
-				_ = RegisterMarshaler(binder, parsePoint)
+				_ = binder.AddMarshaler(parsePoint)
 				return binder.With(ClearMarshalers())
 			},
 		},
